@@ -18,7 +18,7 @@ SESSION_SECRET=""
 # Uncomment and fill in only the features you want to enable.
 
 # Cloudflare Turnstile secret (anti-spam). Pair with the TURNSTILE_SITE_KEY
-# var in wrangler.jsonc.
+# var in wrangler.json.
 # TURNSTILE_SECRET=""
 
 # Resend API key — enables edit-link / magic-link emails.

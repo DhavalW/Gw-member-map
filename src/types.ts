@@ -2,7 +2,7 @@ export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
 
-  // Public vars (wrangler.jsonc -> vars)
+  // Public vars (wrangler.json -> vars)
   APP_NAME: string;
   PUBLIC_BASE_URL: string;
   MODERATION_ENABLED: string;

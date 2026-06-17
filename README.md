@@ -106,7 +106,7 @@ The button is the easiest way to stand up your own copy. Cloudflare will:
 
 1. **Clone this repo into your own GitHub account** (you continue development
    there).
-2. **Auto-provision the D1 database** — because `wrangler.jsonc` ships **without**
+2. **Auto-provision the D1 database** — because `wrangler.json` ships **without**
    a `database_id`, Cloudflare creates the database on *your* account and writes
    the generated id back into *your* copy of the config. Nothing
    account-specific is ever committed here.
@@ -134,12 +134,19 @@ empty (the front-end libs are already vendored into `public/`), and set the
 **deploy command** to `npm run deploy`. Add the required secrets to the Worker
 afterwards. The first deploy auto-provisions D1 and applies migrations.
 
+> **Note on the config format:** the Worker config is plain `wrangler.json`, not
+> `wrangler.jsonc`. Workers Builds' config detector fails to parse JSON-with-comments,
+> and when it can't read the config it never scopes/injects the deploy credentials —
+> so `wrangler deploy` falls back to an interactive login and the build fails with
+> *"In a non-interactive environment, it's necessary to…"*. Keep this file
+> comment-free (document settings here in the README instead).
+
 ### Manual deploy (CLI)
 
 ```bash
 npx wrangler login
 # Optional: create the DB up front (otherwise it's auto-provisioned on deploy)
-# npx wrangler d1 create gw-member-map   # then paste the id into wrangler.jsonc
+# npx wrangler d1 create gw-member-map   # then paste the id into wrangler.json
 npx wrangler secret put ADMIN_PASSWORD     # admin sign-in password
 npx wrangler secret put SESSION_SECRET      # random 32+ byte string for signing
 npm run deploy                              # deploys, then applies migrations
@@ -161,7 +168,7 @@ is only needed when bumping the Leaflet version).
 | `RESEND_API_KEY` | secret | Enables email (edit-link + magic-link) via [Resend](https://resend.com). |
 | `EMAIL_FROM` | secret | Verified sender address, e.g. `Member Map <map@example.com>`. |
 
-Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.jsonc`.
+Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
 
 ---
 
