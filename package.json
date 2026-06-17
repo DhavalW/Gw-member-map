@@ -6,11 +6,21 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler d1 migrations apply gw-member-map --remote && wrangler deploy",
+    "deploy": "wrangler deploy && wrangler d1 migrations apply DB --remote",
     "typecheck": "tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply gw-member-map --local",
-    "db:migrate:remote": "wrangler d1 migrations apply gw-member-map --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "vendor": "node scripts/fetch-vendor.mjs"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ADMIN_PASSWORD": {
+        "description": "Password for the `/admin` dashboard sign-in. Choose a strong, unique value."
+      },
+      "SESSION_SECRET": {
+        "description": "Secret used to sign admin session cookies. Generate one with `openssl rand -base64 32`."
+      }
+    }
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240620.0",
