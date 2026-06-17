@@ -124,6 +124,58 @@ the `ADMIN_PASSWORD` above.
 before deploying (the vendored files in `public/vendor` are committed, so this
 is only needed when bumping the Leaflet version).
 
+> `npm run deploy` applies any pending **remote** D1 migrations and then deploys.
+> Migrations are idempotent, so re-running is safe.
+
+---
+
+## Continuous deployment (Cloudflare Workers Builds + Git)
+
+[Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) is
+Cloudflare's native CI/CD: connect this GitHub repo to your Worker and every push
+to your production branch is built and deployed automatically — no GitHub Actions
+or extra tokens required.
+
+**One-time setup (must be done before connecting Git):**
+
+1. **Create the D1 database** and paste the printed `database_id` into
+   `wrangler.jsonc` (replacing `REPLACE_WITH_YOUR_D1_DATABASE_ID`), then commit:
+   ```bash
+   npx wrangler d1 create gw-member-map
+   ```
+   The build **will fail** while the placeholder id is still in the file.
+2. **Add the runtime secrets** to the Worker. These are *runtime* secrets, not
+   build variables — set them on the Worker in the dashboard
+   (**Workers & Pages → your Worker → Settings → Variables and Secrets**), or via
+   the CLI once:
+   ```bash
+   npx wrangler secret put ADMIN_PASSWORD
+   npx wrangler secret put SESSION_SECRET
+   ```
+   (Plus any optional secrets from the table below — `TURNSTILE_SECRET`,
+   `RESEND_API_KEY`, `EMAIL_FROM`.) Secrets persist across deploys, so this is a
+   one-time step.
+
+**Connect the repo (Cloudflare dashboard):**
+
+1. **Workers & Pages → Create → Workers → Connect to Git**, authorize GitHub,
+   and pick this repository.
+2. Choose the **production branch** Cloudflare should watch (e.g. `main`).
+3. Set the build configuration:
+   - **Build command:** leave empty (the front-end libraries are already
+     vendored into `public/`, so there's no build step).
+   - **Deploy command:** `npm run deploy` — this applies remote D1 migrations and
+     then runs `wrangler deploy`. (The default, `npx wrangler deploy`, would skip
+     migrations and ship against an empty database.)
+   - **Root directory:** leave as the repo root.
+4. Save. Cloudflare installs dependencies with `npm ci` (which requires
+   `package-lock.json` to be in sync — it is) and deploys. Every subsequent push
+   to the watched branch redeploys automatically.
+
+Pushes to non-production branches upload a **preview version**
+(`npx wrangler versions upload`) instead of deploying, so you can review changes
+before they go live.
+
 ### Optional configuration
 
 | Setting | Type | Effect |
@@ -202,7 +254,7 @@ Public visibility requires `status = 'published'` **and** `consent_public = 1`.
 | Command | Description |
 | ------- | ----------- |
 | `npm run dev` | Local dev server (Wrangler + Miniflare). |
-| `npm run deploy` | Deploy the Worker to Cloudflare. |
+| `npm run deploy` | Apply remote D1 migrations, then deploy the Worker to Cloudflare. |
 | `npm run typecheck` | Type-check the Worker with `tsc`. |
 | `npm run vendor` | Copy Leaflet assets into `public/vendor`. |
 | `npm run db:migrate:local` / `:remote` | Apply D1 migrations. |
