@@ -36,11 +36,16 @@ site runs under a strict Content-Security-Policy.
 ## Architecture
 
 ```
-Browser ──► Cloudflare Worker (src/) ──► D1 (SQLite)
-              │  /api/*   JSON API
-              │  /*       static assets (public/) incl. vendored Leaflet
-              └─► Nominatim (geocoding proxy), Resend (optional email)
+Browser ─┬─► /api/*  ─► Cloudflare Worker (src/) ─► D1 (SQLite)
+         │                 └─► Nominatim (geocode proxy), Resend (optional email)
+         └─► /*      ─► Cloudflare CDN ─► static assets (public/) incl. vendored Leaflet
 ```
+
+The Worker runs **only for `/api/*`**. Static assets are served directly from
+Cloudflare's CDN — cached, fast, and free (they don't count against the Workers
+request limit). Security headers for those assets come from `public/_headers`;
+the Worker applies the same headers to its JSON responses. This keeps the app
+well inside the free tier (see the scaling notes below).
 
 | Path                          | Purpose                                         |
 | ----------------------------- | ----------------------------------------------- |
@@ -51,7 +56,24 @@ Browser ──► Cloudflare Worker (src/) ──► D1 (SQLite)
 | `src/geocode.ts`              | Nominatim forward-geocoding proxy               |
 | `src/email.ts`                | Optional Resend email sender                    |
 | `public/`                     | Front-end (map, form, edit, admin) + vendored Leaflet |
+| `public/_headers`             | Security/cache headers for CDN-served static assets |
 | `migrations/`                 | D1 schema migrations                            |
+
+---
+
+## Scaling & cost (free tier)
+
+Comfortably runs on the **Cloudflare free tier** for communities of hundreds to
+low-thousands of members:
+
+- **Worker requests** (100k/day free): only `/api/*` hits the Worker — roughly
+  two calls per page load — so static assets don't consume the quota.
+- **D1** (free: ~5 GB, ~5M row reads/day, 100k writes/day): a few hundred rows
+  is well under 1 MB; the map loads in one query, so even thousands of map views
+  per day stay far below the read limit. Writes happen only on submit/edit.
+- **CPU**: handlers are simple parameterised D1 queries, well under the limit.
+- **Geocoding**: lookups are edge-cached for 24h to respect Nominatim's fair-use
+  policy. For a large simultaneous onboarding spike, switch to a paid geocoder.
 
 ---
 
