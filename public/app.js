@@ -1,4 +1,5 @@
 import { api, configureLeafletIcons, contactNode, debounce, el, getConfig } from "/common.js";
+import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — remove this line and the spread in loadMembers() to clean up
 
 const L = window.L;
 configureLeafletIcons(L);
@@ -15,6 +16,24 @@ const state = {
   pickMarker: null,
   picked: null, // { lat, lng }
 };
+
+// --- Avatar helpers -------------------------------------------------------
+const AVATAR_COLORS = [
+  "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444",
+  "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1",
+];
+
+function nameHash(name) {
+  let h = 0;
+  for (const c of name) h = ((h * 31) + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+function avatarEl(name, extraClass) {
+  const initials = name.trim().split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+  const color = AVATAR_COLORS[nameHash(name) % AVATAR_COLORS.length];
+  return el("div", { class: `avatar${extraClass ? " " + extraClass : ""}`, style: `background:${color}` }, [initials]);
+}
 
 // --- Boot -----------------------------------------------------------------
 init().catch((err) => console.error(err));
@@ -45,7 +64,11 @@ function initMap() {
 
 async function loadMembers() {
   const { data } = await api("/api/members");
-  MEMBERS = Array.isArray(data.members) ? data.members : [];
+  const real = Array.isArray(data.members) ? data.members : [];
+  MEMBERS = [
+    ...real,
+    ...MOCK_MEMBERS, // DEMO — remove this line to clean up
+  ];
   renderMembers(MEMBERS);
 }
 
@@ -66,10 +89,14 @@ function renderMembers(members) {
 }
 
 function buildPopup(m) {
-  const node = el("div", { class: "popup" }, [
-    el("div", { class: "name", text: m.name }),
-    el("div", { class: "loc", text: m.location }),
+  const header = el("div", { class: "popup-header" }, [
+    avatarEl(m.name, "av-lg"),
+    el("div", { class: "popup-meta" }, [
+      el("div", { class: "name", text: m.name }),
+      el("div", { class: "loc", text: m.location }),
+    ]),
   ]);
+  const node = el("div", { class: "popup" }, [header]);
   if (m.bio) node.append(el("div", { class: "bio", text: m.bio }));
   const c = contactNode(m.contactLabel, m.contactUrl);
   if (c) node.append(el("div", { class: "contact" }, [c]));
@@ -85,9 +112,12 @@ function renderList(members) {
   }
   for (const m of members) {
     const item = el("button", { class: "member-item", role: "listitem", type: "button" }, [
-      el("div", { class: "name", text: m.name }),
-      el("div", { class: "loc", text: m.location }),
-      m.bio ? el("div", { class: "bio", text: m.bio }) : null,
+      avatarEl(m.name, "av-sm"),
+      el("div", { class: "member-info" }, [
+        el("div", { class: "name", text: m.name }),
+        el("div", { class: "loc", text: m.location }),
+        m.bio ? el("div", { class: "bio", text: m.bio }) : null,
+      ]),
     ]);
     item.addEventListener("click", () => focusMember(m));
     list.append(item);

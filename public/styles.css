@@ -56,7 +56,9 @@ aside.sidebar {
 .sidebar .list { overflow-y: auto; flex: 1 1 auto; }
 
 .member-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   text-align: left;
   background: none;
@@ -68,10 +70,32 @@ aside.sidebar {
   color: inherit;
 }
 .member-item:hover, .member-item:focus-visible { background: #f0f5ff; outline: none; }
+.member-info { flex: 1; min-width: 0; }
 .member-item .name { font-weight: 600; }
 .member-item .loc { color: var(--muted); font-size: 13px; }
 .member-item .bio { font-size: 13px; color: var(--ink); margin-top: 4px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Avatars ------------------------------------------------------------------ */
+.avatar {
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  user-select: none;
+  letter-spacing: 0.01em;
+}
+.av-sm { width: 38px; height: 38px; font-size: 13px; }
+.av-lg { width: 42px; height: 42px; font-size: 15px; }
+
+/* Popup header with avatar + name/location side by side */
+.popup-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.popup-meta { flex: 1; min-width: 0; }
+.popup .name { font-weight: 700; font-size: 15px; }
+.popup .loc { color: var(--muted); font-size: 13px; }
 
 #map { flex: 1 1 auto; min-height: 0; }
 
@@ -137,8 +161,6 @@ dialog::backdrop { background: rgba(16, 24, 40, .45); }
 .geo-results li button:hover { background: #f0f5ff; }
 
 /* Popups + cards ---------------------------------------------------------- */
-.popup .name { font-weight: 700; font-size: 15px; }
-.popup .loc { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .popup .bio { font-size: 13px; margin: 6px 0; white-space: pre-wrap; }
 .popup .contact a { font-size: 13px; }
 
