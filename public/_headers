@@ -1,0 +1,17 @@
+# Headers applied by Cloudflare to static-asset responses (HTML, CSS, JS).
+# Mirrors the security headers the Worker sets on /api/* responses, so the
+# Worker no longer needs to run for every asset request (keeps static serving
+# free + CDN-cached on the Workers free tier).
+
+/*
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; frame-src https://challenges.cloudflare.com; font-src 'self'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Vendored libraries change only when the Leaflet version is bumped.
+/vendor/*
+  Cache-Control: public, max-age=86400

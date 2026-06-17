@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Member Map</title>
+  <meta name="description" content="An opt-in directory of members shown on a world map." />
+  <link rel="stylesheet" href="/vendor/leaflet.css" />
+  <link rel="stylesheet" href="/vendor/MarkerCluster.css" />
+  <link rel="stylesheet" href="/vendor/MarkerCluster.Default.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1 id="app-name">Member Map</h1>
+      <span class="count" id="member-count" aria-live="polite"></span>
+      <span class="spacer"></span>
+      <a class="btn small" href="/edit">Edit my entry</a>
+      <button class="btn primary" id="open-form">Add me to the map</button>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="search">
+          <div class="field" style="margin:0">
+            <label for="filter" class="sr-only">Search members</label>
+            <input type="text" id="filter" placeholder="Search by name or location…" autocomplete="off" />
+          </div>
+        </div>
+        <div class="list" id="member-list" role="list"></div>
+      </aside>
+      <div id="map" role="application" aria-label="World map of members"></div>
+    </div>
+  </div>
+
+  <!-- Submission dialog -->
+  <dialog id="form-dialog" aria-labelledby="form-title">
+    <form id="member-form" method="dialog" novalidate>
+      <div class="dialog-head">
+        <h2 id="form-title">Add yourself to the map</h2>
+        <span class="spacer"></span>
+        <button type="button" class="icon-btn" id="close-form" aria-label="Close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="notice err" id="form-error" style="display:none"></div>
+
+        <div class="field" id="f-display_name">
+          <label for="display_name">Name <span class="muted">(required)</span></label>
+          <input type="text" id="display_name" name="display_name" maxlength="80" required autocomplete="name" />
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-location_name">
+          <label for="location_name">City / location <span class="muted">(required)</span></label>
+          <input type="text" id="location_name" name="location_name" maxlength="120" required
+                 placeholder="e.g. Lisbon, Portugal" autocomplete="off" />
+          <div class="hint">Type a place and pick a match, or click the map to drop your pin.</div>
+          <ul class="geo-results" id="geo-results" role="listbox" aria-label="Location matches"></ul>
+          <div id="pickmap" class="pickmap"></div>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-bio">
+          <label for="bio">Short bio <span class="muted">(optional)</span></label>
+          <textarea id="bio" name="bio" maxlength="600" placeholder="A sentence or two about you."></textarea>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-contact">
+          <label for="contact">How to connect <span class="muted">(optional)</span></label>
+          <input type="text" id="contact" name="contact" maxlength="200"
+                 placeholder="Website, social link, or @handle" autocomplete="off" />
+          <div class="hint">A link or email will be made clickable; handles show as text.</div>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-email">
+          <label for="email">Email <span class="muted">(optional, private)</span></label>
+          <input type="email" id="email" name="email" maxlength="254" autocomplete="email" />
+          <div class="hint">Never shown publicly. Used only to email you your edit link.</div>
+          <div class="err" data-err></div>
+        </div>
+
+        <!-- Honeypot: must stay empty -->
+        <div class="hp" aria-hidden="true">
+          <label for="website">Website</label>
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <div id="turnstile-holder"></div>
+
+        <div class="field checkbox has-consent" id="f-consent">
+          <input type="checkbox" id="consent_public" name="consent_public" />
+          <label for="consent_public">
+            I’m happy for my entry (name, location, bio and contact) to be shown
+            <strong>publicly</strong> on this map. I can edit or remove it at any time.
+          </label>
+        </div>
+        <div class="err" id="consent-err" style="color:var(--danger);font-size:13px;display:none">
+          You must opt in to be shown publicly.
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" id="cancel-form">Cancel</button>
+        <button type="submit" class="btn primary" id="submit-form">Add me to the map</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Success dialog with the private edit link -->
+  <dialog id="success-dialog" aria-labelledby="success-title">
+    <div class="dialog-head">
+      <h2 id="success-title">You’re on the map! 🎉</h2>
+    </div>
+    <div class="dialog-body">
+      <div class="notice ok" id="success-msg">Thanks for joining.</div>
+      <p><strong>Save your private edit link.</strong> Anyone with this link can edit or
+        remove your entry, so keep it to yourself. Bookmark it now:</p>
+      <div class="copybox">
+        <input type="text" id="edit-link" readonly />
+        <button type="button" class="btn" id="copy-link">Copy</button>
+      </div>
+      <p class="muted" id="email-note" style="display:none">We’ve also emailed this link to you.</p>
+    </div>
+    <div class="dialog-foot">
+      <a class="btn" id="goto-edit" href="#">Edit now</a>
+      <button type="button" class="btn primary" id="close-success">Done</button>
+    </div>
+  </dialog>
+
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/vendor/leaflet.markercluster.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

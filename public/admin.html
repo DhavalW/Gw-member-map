@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Member Map</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="/vendor/leaflet.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="wrap" style="max-width:1000px">
+    <p><a href="/">&larr; Back to the map</a></p>
+    <h1>Admin</h1>
+
+    <!-- Login -->
+    <div class="card" id="login-view" style="display:none;max-width:420px">
+      <div class="notice err" id="login-error" style="display:none"></div>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="password">Admin password</label>
+          <input type="password" id="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn primary">Sign in</button>
+      </form>
+    </div>
+
+    <div class="card" id="not-configured" style="display:none">
+      <p>Admin access isn’t configured on this deployment. Set the
+        <code>ADMIN_PASSWORD</code> and <code>SESSION_SECRET</code> secrets, then redeploy.</p>
+    </div>
+
+    <div id="loading-view" class="card"><p class="muted">Loading…</p></div>
+
+    <!-- Dashboard -->
+    <div id="dash-view" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <input type="text" id="admin-filter" placeholder="Filter…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px" />
+        <span class="muted" id="admin-count"></span>
+        <button class="btn" id="logout-btn">Sign out</button>
+      </div>
+      <div class="notice err" id="dash-error" style="display:none"></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table class="admin">
+          <thead>
+            <tr>
+              <th>Name</th><th>Location</th><th>Contact</th><th>Email</th>
+              <th>Status</th><th>Added</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="admin-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit dialog -->
+  <dialog id="edit-dialog" aria-labelledby="edit-title">
+    <form id="admin-edit-form" method="dialog" novalidate>
+      <div class="dialog-head">
+        <h2 id="edit-title">Edit member</h2><span class="spacer"></span>
+        <button type="button" class="icon-btn" id="close-edit" aria-label="Close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="notice err" id="admin-edit-error" style="display:none"></div>
+        <div class="field" id="f-display_name"><label for="a-name">Name</label>
+          <input type="text" id="a-name" maxlength="80" /><div class="err" data-err></div></div>
+        <div class="field" id="f-location_name"><label for="a-loc">Location</label>
+          <input type="text" id="a-loc" maxlength="120" /><div class="err" data-err></div></div>
+        <div style="display:flex;gap:10px">
+          <div class="field" style="flex:1" id="f-lat"><label for="a-lat">Latitude</label>
+            <input type="text" id="a-lat" /><div class="err" data-err></div></div>
+          <div class="field" style="flex:1" id="f-lng"><label for="a-lng">Longitude</label>
+            <input type="text" id="a-lng" /><div class="err" data-err></div></div>
+        </div>
+        <div id="admin-pickmap" class="pickmap"></div>
+        <div class="field" id="f-bio" style="margin-top:12px"><label for="a-bio">Bio</label>
+          <textarea id="a-bio" maxlength="600"></textarea><div class="err" data-err></div></div>
+        <div class="field" id="f-contact"><label for="a-contact">Contact</label>
+          <input type="text" id="a-contact" maxlength="200" /><div class="err" data-err></div></div>
+        <div class="field" id="f-email"><label for="a-email">Email</label>
+          <input type="email" id="a-email" maxlength="254" /><div class="err" data-err></div></div>
+        <div style="display:flex;gap:16px;align-items:center">
+          <div class="field" style="margin:0"><label for="a-status">Status</label>
+            <select id="a-status" style="padding:9px 12px;border:1px solid var(--line);border-radius:10px">
+              <option value="published">Published</option>
+              <option value="pending">Pending</option>
+              <option value="hidden">Hidden</option>
+            </select>
+          </div>
+          <div class="checkbox" style="margin-top:18px">
+            <input type="checkbox" id="a-consent" /><label for="a-consent">Opted in (public)</label>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn danger" id="admin-delete">Delete</button>
+        <span class="spacer" style="flex:1"></span>
+        <button type="button" class="btn" id="admin-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="admin-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/vendor/leaflet.js"></script>
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>
