@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gw-member-map",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // The Worker runs first for every request so it can apply security
+    // headers and handle the API; it falls through to static assets.
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gw-member-map",
+      // Replace with the id printed by `wrangler d1 create gw-member-map`.
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Public, non-secret configuration. Secrets are set with
+    // `wrangler secret put <NAME>` and never committed.
+    "APP_NAME": "Member Map",
+    // Comma-free single origin used to build absolute edit links in emails,
+    // e.g. "https://members.example.com". Leave blank to derive from request.
+    "PUBLIC_BASE_URL": "",
+    // Set to "true" to require the admin to approve entries before they show
+    // publicly. Default ("false") publishes opted-in entries immediately.
+    "MODERATION_ENABLED": "false",
+    // Optional Cloudflare Turnstile site key (public). When set together with
+    // the TURNSTILE_SECRET secret, the submission form shows a spam-protection
+    // widget and the Worker verifies it. Empty = disabled.
+    "TURNSTILE_SITE_KEY": ""
+  }
+}

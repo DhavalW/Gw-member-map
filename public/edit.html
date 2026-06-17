@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Edit your entry — Member Map</title>
+  <link rel="stylesheet" href="/vendor/leaflet.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="/">&larr; Back to the map</a></p>
+    <h1>Edit your entry</h1>
+
+    <!-- No credential / request-by-email view -->
+    <div class="card" id="request-view" style="display:none">
+      <div class="notice err" id="request-error" style="display:none"></div>
+      <p>To edit your entry, open the private edit link you saved when you joined.</p>
+      <div id="email-request" style="display:none">
+        <p class="muted">Lost it? If you gave an email address, we can send it again.</p>
+        <form id="request-form" novalidate>
+          <div class="field">
+            <label for="req-email">Your email</label>
+            <input type="email" id="req-email" name="email" maxlength="254" required autocomplete="email" />
+          </div>
+          <button type="submit" class="btn primary">Email me my edit link</button>
+        </form>
+        <div class="notice ok" id="request-sent" style="display:none">
+          If that email is on the map, we’ve sent an edit link. Check your inbox.
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="card" id="loading-view"><p class="muted">Loading your entry…</p></div>
+
+    <!-- Edit form -->
+    <div class="card" id="edit-view" style="display:none">
+      <div class="notice ok" id="edit-ok" style="display:none"></div>
+      <div class="notice err" id="edit-error" style="display:none"></div>
+
+      <form id="edit-form" novalidate>
+        <div class="field" id="f-display_name">
+          <label for="display_name">Name</label>
+          <input type="text" id="display_name" maxlength="80" required />
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-location_name">
+          <label for="location_name">City / location</label>
+          <input type="text" id="location_name" maxlength="120" required autocomplete="off" />
+          <div class="hint">Type to search, pick a result, or click the map to move your pin.</div>
+          <ul class="geo-results" id="geo-results"></ul>
+          <div id="pickmap" class="pickmap"></div>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-bio">
+          <label for="bio">Short bio</label>
+          <textarea id="bio" maxlength="600"></textarea>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-contact">
+          <label for="contact">How to connect</label>
+          <input type="text" id="contact" maxlength="200" autocomplete="off" />
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field" id="f-email">
+          <label for="email">Email (private)</label>
+          <input type="email" id="email" maxlength="254" autocomplete="email" />
+          <div class="hint">Never shown publicly.</div>
+          <div class="err" data-err></div>
+        </div>
+
+        <div class="field checkbox" id="f-consent">
+          <input type="checkbox" id="consent_public" />
+          <label for="consent_public">Keep my entry shown publicly on the map.</label>
+        </div>
+        <p class="muted" id="consent-note" style="display:none">
+          Unticking this hides your pin without deleting your entry.
+        </p>
+
+        <div style="display:flex;gap:10px;justify-content:space-between;margin-top:8px">
+          <button type="button" class="btn danger" id="delete-btn">Delete my entry</button>
+          <button type="submit" class="btn primary" id="save-btn">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/vendor/leaflet.js"></script>
+  <script type="module" src="/edit.js"></script>
+</body>
+</html>
