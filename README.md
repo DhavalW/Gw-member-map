@@ -84,10 +84,8 @@ npm install          # installs wrangler, types, and the leaflet libs
 npm run vendor       # copies Leaflet into public/vendor (run once / after updates)
 
 # Local secrets for `wrangler dev` (never committed — see .gitignore)
-cat > .dev.vars <<'EOF'
-ADMIN_PASSWORD="choose-a-strong-password"
-SESSION_SECRET="$(openssl rand -base64 32)"
-EOF
+cp .dev.vars.example .dev.vars   # then edit: set ADMIN_PASSWORD + SESSION_SECRET
+# tip: openssl rand -base64 32   # generates a good SESSION_SECRET
 
 npm run db:migrate:local    # create the local D1 tables
 npm run dev                 # http://localhost:8787
@@ -100,28 +98,55 @@ the `ADMIN_PASSWORD` above.
 
 ## Deploying to Cloudflare
 
-1. **Authenticate** Wrangler: `npx wrangler login`.
-2. **Create the D1 database** and copy the printed `database_id` into
-   `wrangler.jsonc` (replacing `REPLACE_WITH_YOUR_D1_DATABASE_ID`):
-   ```bash
-   npx wrangler d1 create gw-member-map
-   ```
-3. **Apply migrations** to the remote database:
-   ```bash
-   npm run db:migrate:remote
-   ```
-4. **Set secrets** (never put these in `wrangler.jsonc`):
-   ```bash
-   npx wrangler secret put ADMIN_PASSWORD     # admin sign-in password
-   npx wrangler secret put SESSION_SECRET      # random 32+ byte string for signing
-   ```
-5. **Deploy**:
-   ```bash
-   npm run deploy
-   ```
+### One-click deploy (recommended)
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DhavalW/Gw-member-map)
+
+The button is the easiest way to stand up your own copy. Cloudflare will:
+
+1. **Clone this repo into your own GitHub account** (you continue development
+   there).
+2. **Auto-provision the D1 database** — because `wrangler.jsonc` ships **without**
+   a `database_id`, Cloudflare creates the database on *your* account and writes
+   the generated id back into *your* copy of the config. Nothing
+   account-specific is ever committed here.
+3. **Prompt you for the secrets** listed in `.dev.vars.example`
+   (`ADMIN_PASSWORD`, `SESSION_SECRET`) and store them as encrypted Worker
+   secrets.
+4. **Build and deploy**, and wire up **Workers Builds CI/CD** so every push to
+   your production branch redeploys automatically (pull requests get preview
+   URLs).
+
+Database migrations run automatically: the `deploy` script in `package.json`
+(`wrangler deploy && wrangler d1 migrations apply DB --remote`) is used as the
+deploy command, so the schema is created on the first deploy and kept up to date
+on every subsequent one. Migrations are idempotent, so re-running is safe.
+
+After the first deploy, set any **optional** secrets you want (email, Turnstile)
+from the table below — in the dashboard under **Workers & Pages → your Worker →
+Settings → Variables and Secrets**, or with `wrangler secret put <NAME>`.
+
+### Connect an existing repo via the dashboard
+
+If you'd rather connect this repo manually (**Workers & Pages → Create → Workers
+→ Connect to Git**): pick your production branch, leave the **build command**
+empty (the front-end libs are already vendored into `public/`), and set the
+**deploy command** to `npm run deploy`. Add the required secrets to the Worker
+afterwards. The first deploy auto-provisions D1 and applies migrations.
+
+### Manual deploy (CLI)
+
+```bash
+npx wrangler login
+# Optional: create the DB up front (otherwise it's auto-provisioned on deploy)
+# npx wrangler d1 create gw-member-map   # then paste the id into wrangler.jsonc
+npx wrangler secret put ADMIN_PASSWORD     # admin sign-in password
+npx wrangler secret put SESSION_SECRET      # random 32+ byte string for signing
+npm run deploy                              # deploys, then applies migrations
+```
 
 `npm run vendor` runs against `node_modules`, so make sure `npm install` has run
-before deploying (the vendored files in `public/vendor` are committed, so this
+before re-vendoring (the vendored files in `public/vendor` are committed, so this
 is only needed when bumping the Leaflet version).
 
 ### Optional configuration
@@ -202,7 +227,7 @@ Public visibility requires `status = 'published'` **and** `consent_public = 1`.
 | Command | Description |
 | ------- | ----------- |
 | `npm run dev` | Local dev server (Wrangler + Miniflare). |
-| `npm run deploy` | Deploy the Worker to Cloudflare. |
+| `npm run deploy` | Deploy the Worker to Cloudflare, then apply remote D1 migrations. |
 | `npm run typecheck` | Type-check the Worker with `tsc`. |
 | `npm run vendor` | Copy Leaflet assets into `public/vendor`. |
 | `npm run db:migrate:local` / `:remote` | Apply D1 migrations. |

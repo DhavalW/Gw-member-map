@@ -19,8 +19,12 @@
     {
       "binding": "DB",
       "database_name": "gw-member-map",
-      // Replace with the id printed by `wrangler d1 create gw-member-map`.
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      // No "database_id" on purpose. Cloudflare auto-provisions a D1 database
+      // on the first deploy (via the "Deploy to Cloudflare" button or
+      // `wrangler deploy`) and writes the generated id back into this file in
+      // *your* copy of the repo — so nothing account-specific is committed
+      // upstream. To point at an existing database instead, run
+      // `wrangler d1 create gw-member-map` and add its "database_id" here.
       "migrations_dir": "migrations"
     }
   ],

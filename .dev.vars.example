@@ -1,0 +1,27 @@
+# Runtime secrets for the Worker (dotenv format).
+#
+# - The "Deploy to Cloudflare" button reads this file and prompts for each
+#   value during setup, storing them as encrypted Worker secrets.
+# - For local development, copy this file to `.dev.vars` and fill it in.
+# - For a manual deploy, set each one with: wrangler secret put <NAME>
+#
+# `.dev.vars` itself is git-ignored; only this example is committed.
+
+# Required ---------------------------------------------------------------
+# Password for the /admin dashboard sign-in.
+ADMIN_PASSWORD=""
+# Secret used to sign admin session cookies. Generate with:
+#   openssl rand -base64 32
+SESSION_SECRET=""
+
+# Optional ---------------------------------------------------------------
+# Uncomment and fill in only the features you want to enable.
+
+# Cloudflare Turnstile secret (anti-spam). Pair with the TURNSTILE_SITE_KEY
+# var in wrangler.jsonc.
+# TURNSTILE_SECRET=""
+
+# Resend API key — enables edit-link / magic-link emails.
+# RESEND_API_KEY=""
+# Verified sender address, e.g. "Member Map <map@example.com>".
+# EMAIL_FROM=""
