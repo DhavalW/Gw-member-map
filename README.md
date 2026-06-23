@@ -107,9 +107,8 @@ The button is the easiest way to stand up your own copy. Cloudflare will:
 1. **Clone this repo into your own GitHub account** (you continue development
    there).
 2. **Auto-provision the D1 database** — because `wrangler.json` ships **without**
-   a `database_id`, Cloudflare creates the database on *your* account and writes
-   the generated id back into *your* copy of the config. Nothing
-   account-specific is ever committed here.
+   a `database_id`, Cloudflare creates the database on *your* account and binds
+   it to the Worker. Nothing account-specific is ever committed here.
 3. **Prompt you for the secrets** listed in `.dev.vars.example`
    (`ADMIN_PASSWORD`, `SESSION_SECRET`) and store them as encrypted Worker
    secrets.
@@ -117,10 +116,14 @@ The button is the easiest way to stand up your own copy. Cloudflare will:
    your production branch redeploys automatically (pull requests get preview
    URLs).
 
-Database migrations run automatically: the `deploy` script in `package.json`
-(`wrangler deploy && wrangler d1 migrations apply DB --remote`) is used as the
-deploy command, so the schema is created on the first deploy and kept up to date
-on every subsequent one. Migrations are idempotent, so re-running is safe.
+**The database sets itself up — no manual steps.** The Worker creates its tables
+on the first request that needs them (see `src/schema.ts`), so you never have to
+deal with a `database_id` or run a migration command. This sidesteps a sharp
+edge of the auto-provisioning flow: Cloudflare provisions the D1 database but
+does **not** write the generated `database_id` back into your committed config,
+which would make a separate `wrangler d1 migrations apply --remote` step fail.
+The schema statements are all idempotent (`CREATE … IF NOT EXISTS`), so this is
+safe to run on every cold start.
 
 After the first deploy, set any **optional** secrets you want (email, Turnstile)
 from the table below — in the dashboard under **Workers & Pages → your Worker →
@@ -131,8 +134,9 @@ Settings → Variables and Secrets**, or with `wrangler secret put <NAME>`.
 If you'd rather connect this repo manually (**Workers & Pages → Create → Workers
 → Connect to Git**): pick your production branch, leave the **build command**
 empty (the front-end libs are already vendored into `public/`), and set the
-**deploy command** to `npm run deploy`. Add the required secrets to the Worker
-afterwards. The first deploy auto-provisions D1 and applies migrations.
+**deploy command** to `npm run deploy` (which runs `wrangler deploy` — note:
+`npm`, not `npx`). Add the required secrets to the Worker afterwards. The first
+deploy auto-provisions D1, and the Worker creates its own tables on first use.
 
 > **Note on the config format:** the Worker config is plain `wrangler.json`, not
 > `wrangler.jsonc`. Workers Builds' config detector fails to parse JSON-with-comments,
@@ -149,7 +153,7 @@ npx wrangler login
 # npx wrangler d1 create gw-member-map   # then paste the id into wrangler.json
 npx wrangler secret put ADMIN_PASSWORD     # admin sign-in password
 npx wrangler secret put SESSION_SECRET      # random 32+ byte string for signing
-npm run deploy                              # deploys, then applies migrations
+npm run deploy                              # deploys the Worker (schema self-initialises)
 ```
 
 `npm run vendor` runs against `node_modules`, so make sure `npm install` has run
@@ -234,7 +238,7 @@ Public visibility requires `status = 'published'` **and** `consent_public = 1`.
 | Command | Description |
 | ------- | ----------- |
 | `npm run dev` | Local dev server (Wrangler + Miniflare). |
-| `npm run deploy` | Deploy the Worker to Cloudflare, then apply remote D1 migrations. |
+| `npm run deploy` | Deploy the Worker to Cloudflare (the schema self-initialises on first use). |
 | `npm run typecheck` | Type-check the Worker with `tsc`. |
 | `npm run vendor` | Copy Leaflet assets into `public/vendor`. |
 | `npm run db:migrate:local` / `:remote` | Apply D1 migrations. |
