@@ -30,6 +30,7 @@ import {
   updateMember,
 } from "./db";
 import { geocode } from "./geocode";
+import { ensureSchema } from "./schema";
 import { emailConfigured, sendEmail } from "./email";
 import { validateSubmission } from "./validate";
 
@@ -92,18 +93,9 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     });
   }
 
-  // --- Public list of members ---
-  if (pathname === "/api/members" && method === "GET") {
-    const members = await listPublicMembers(env);
-    return json({ members });
-  }
-
-  // --- Create a submission ---
-  if (pathname === "/api/members" && method === "POST") {
-    return handleCreate(request, env);
-  }
-
   // --- Geocoding proxy for the form's location search ---
+  // Handled before the DB-backed routes (and before ensureSchema) so location
+  // search keeps working even if the database is briefly unavailable.
   if (pathname === "/api/geocode" && method === "GET") {
     const q = url.searchParams.get("q") ?? "";
     try {
@@ -116,6 +108,22 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
       console.error("Geocode failed", err);
       return json({ results: [], error: "geocode_unavailable" }, 200);
     }
+  }
+
+  // Everything below this point reads or writes D1. Make sure the tables exist
+  // first: this lets a freshly auto-provisioned database initialise itself on
+  // the first request, so no separate "migrations apply" step is needed.
+  await ensureSchema(env);
+
+  // --- Public list of members ---
+  if (pathname === "/api/members" && method === "GET") {
+    const members = await listPublicMembers(env);
+    return json({ members });
+  }
+
+  // --- Create a submission ---
+  if (pathname === "/api/members" && method === "POST") {
+    return handleCreate(request, env);
   }
 
   // --- Email magic-link request (anti-enumeration: always 200) ---
