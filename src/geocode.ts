@@ -30,14 +30,21 @@ export async function geocode(
 
   const res = await fetch(url.toString(), {
     headers: {
-      "User-Agent": `${env.APP_NAME || "MemberMap"} (Cloudflare Worker member directory)`,
+      // Nominatim's usage policy requires a descriptive User-Agent with a way
+      // to make contact; a generic one risks being blocked outright.
+      "User-Agent": `${env.APP_NAME || "MemberMap"} member directory (+${env.PUBLIC_BASE_URL || "https://workers.dev"})`,
       "Accept-Language": "en",
+      "Referer": env.PUBLIC_BASE_URL || "https://workers.dev",
     },
     // Cache identical lookups at the edge to stay well within usage limits.
     cf: { cacheTtl: 60 * 60 * 24, cacheEverything: true },
   });
 
-  if (!res.ok) return [];
+  // Surface upstream failures (e.g. 403/429 from Nominatim) to the caller so it
+  // can inform the user, rather than masquerading them as "no matches".
+  if (!res.ok) {
+    throw new Error(`Nominatim responded ${res.status} ${res.statusText}`);
+  }
 
   const data = (await res.json()) as Array<{
     display_name: string;

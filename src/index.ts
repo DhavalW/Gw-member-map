@@ -106,8 +106,16 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   // --- Geocoding proxy for the form's location search ---
   if (pathname === "/api/geocode" && method === "GET") {
     const q = url.searchParams.get("q") ?? "";
-    const results = await geocode(q, env);
-    return json({ results }, 200, { "Cache-Control": "public, max-age=3600" });
+    try {
+      const results = await geocode(q, env);
+      return json({ results }, 200, { "Cache-Control": "public, max-age=3600" });
+    } catch (err) {
+      // Upstream (Nominatim) failed or was rate-limited. Tell the client so it
+      // can prompt the user to drop a pin on the map instead of silently
+      // showing no results.
+      console.error("Geocode failed", err);
+      return json({ results: [], error: "geocode_unavailable" }, 200);
+    }
   }
 
   // --- Email magic-link request (anti-enumeration: always 200) ---
