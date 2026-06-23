@@ -1,8 +1,9 @@
-import { api, configureLeafletIcons, contactNode, debounce, el, getConfig } from "/common.js";
+import { api, configureLeafletIcons, contactNode, debounce, el, getConfig, installDebugOverlay } from "/common.js";
 import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — remove this line and the spread in loadMembers() to clean up
 
 const L = window.L;
 configureLeafletIcons(L);
+installDebugOverlay(); // on-screen logs for devices without a dev console
 
 let CONFIG = {};
 let MEMBERS = [];
@@ -36,7 +37,7 @@ function avatarEl(name, extraClass) {
 }
 
 // --- Boot -----------------------------------------------------------------
-init().catch((err) => console.error(err));
+init().catch((err) => console.error("init failed", err));
 
 async function init() {
   CONFIG = await getConfig();
@@ -152,6 +153,7 @@ function wireForm() {
   const form = document.getElementById("member-form");
 
   open.addEventListener("click", () => {
+    resetFormErrors(); // never reopen with a stale (or blank) error showing
     dialog.showModal();
     setTimeout(initPickMap, 50); // map needs a sized container
   });
@@ -176,6 +178,9 @@ function initPickMap() {
   }).addTo(map);
   map.on("click", (e) => setPick(e.latlng.lat, e.latlng.lng));
   state.pickMap = map;
+  // The container was hidden until the dialog opened, so Leaflet may have
+  // measured it at zero size; recompute once layout settles or tiles won't load.
+  setTimeout(() => map.invalidateSize(), 0);
 }
 
 function setPick(lat, lng, recenter = false) {
@@ -196,21 +201,51 @@ function setPick(lat, lng, recenter = false) {
 function wireGeocode() {
   const input = document.getElementById("location_name");
   const results = document.getElementById("geo-results");
+  const hint = document.querySelector("#f-location_name .hint");
+  const defaultHint = hint ? hint.textContent : "";
+  const setHint = (msg) => { if (hint) hint.textContent = msg || defaultHint; };
+  const PIN_HINT = "Couldn’t search locations right now — click the map below to drop your pin.";
 
   const search = debounce(async () => {
     const q = input.value.trim();
     if (q.length < 3) {
       results.classList.remove("show");
       results.replaceChildren();
+      setHint("");
       return;
     }
-    const { data } = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
-    const items = Array.isArray(data.results) ? data.results : [];
+    setHint("Searching…");
+
+    let resp;
+    try {
+      resp = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+    } catch (err) {
+      console.error("geocode request failed", err);
+      results.classList.remove("show");
+      setHint(PIN_HINT);
+      return;
+    }
+
+    const { ok, status, data } = resp;
     results.replaceChildren();
+
+    // Endpoint reachable but the upstream lookup failed (or returned non-JSON):
+    // tell the user instead of silently showing nothing.
+    if (!ok || data.error || !Array.isArray(data.results)) {
+      console.warn("geocode unavailable", { status, error: data.error });
+      results.classList.remove("show");
+      setHint(PIN_HINT);
+      return;
+    }
+
+    const items = data.results;
     if (items.length === 0) {
       results.classList.remove("show");
+      setHint("No matches — try a different spelling, or click the map to drop your pin.");
       return;
     }
+
+    setHint("");
     for (const r of items) {
       const btn = el("button", { type: "button", text: r.label });
       btn.addEventListener("click", () => {
@@ -246,6 +281,23 @@ function maybeLoadTurnstile() {
 function clearError(field) {
   const wrap = document.getElementById(`f-${field}`);
   if (wrap) wrap.classList.remove("has-error");
+}
+
+/** Clear every error surface in the form (called when the dialog opens). */
+function resetFormErrors() {
+  const formError = document.getElementById("form-error");
+  formError.textContent = "";
+  formError.style.display = "none";
+  document.getElementById("consent-err").style.display = "none";
+  document.querySelectorAll("#member-form .field.has-error")
+    .forEach((n) => n.classList.remove("has-error"));
+}
+
+/** Show the top-of-form error bar, but never as an empty red strip. */
+function showFormError(msg) {
+  const formError = document.getElementById("form-error");
+  formError.textContent = msg || "Something went wrong. Please try again.";
+  formError.style.display = "block";
 }
 
 function showFieldErrors(fields) {
@@ -296,16 +348,16 @@ async function onSubmit(e) {
     const { ok, data } = await api("/api/members", { method: "POST", body: payload });
     if (!ok) {
       if (data.fields) showFieldErrors(data.fields);
-      formError.textContent = data.error || "Something went wrong. Please try again.";
-      formError.style.display = "block";
+      console.warn("submit rejected", data);
+      showFormError(data.error);
       return;
     }
     document.getElementById("form-dialog").close();
     showSuccess(data);
     await loadMembers();
-  } catch {
-    formError.textContent = "Network error. Please try again.";
-    formError.style.display = "block";
+  } catch (err) {
+    console.error("submit failed", err);
+    showFormError("Network error. Please try again.");
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "Add me to the map";
