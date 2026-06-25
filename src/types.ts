@@ -4,6 +4,9 @@ export interface Env {
 
   // Public vars (wrangler.json -> vars)
   APP_NAME: string;
+  // Community this map belongs to (branding + links).
+  COMMUNITY_NAME: string;
+  COMMUNITY_URL: string;
   PUBLIC_BASE_URL: string;
   MODERATION_ENABLED: string;
   // Public Turnstile site key (safe to expose). Empty disables the widget.
@@ -14,9 +17,6 @@ export interface Env {
   SESSION_SECRET?: string;
   // Optional Cloudflare Turnstile (spam protection)
   TURNSTILE_SECRET?: string;
-  // Optional Resend-compatible email provider for magic links
-  RESEND_API_KEY?: string;
-  EMAIL_FROM?: string;
 }
 
 export interface MemberRow {

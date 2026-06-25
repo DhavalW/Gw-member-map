@@ -3,15 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin — Member Map</title>
+  <title>Admin — Generalist World Member Map</title>
   <meta name="robots" content="noindex" />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="wrap" style="max-width:1000px">
-    <p><a href="/">&larr; Back to the map</a></p>
-    <h1>Admin</h1>
+  <div class="wrap admin-wrap">
+    <div class="admin-top">
+      <div>
+        <p style="margin:0"><a href="/">&larr; Back to the map</a></p>
+        <h1 style="margin:6px 0 0">Admin</h1>
+        <p class="muted" style="margin:2px 0 0">
+          <a id="community-link" href="https://generalist.world/" target="_blank" rel="noopener noreferrer">Generalist World</a>
+          member directory
+        </p>
+      </div>
+    </div>
 
     <!-- Login -->
     <div class="card" id="login-view" style="display:none;max-width:420px">
@@ -34,23 +42,45 @@
 
     <!-- Dashboard -->
     <div id="dash-view" style="display:none">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-        <input type="text" id="admin-filter" placeholder="Filter…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px" />
-        <span class="muted" id="admin-count"></span>
-        <button class="btn" id="logout-btn">Sign out</button>
+      <div class="admin-toolbar">
+        <input type="text" id="admin-filter" placeholder="Filter by name, location, contact or email…" />
+        <span class="spacer"></span>
+        <button class="btn small" id="import-btn">Import CSV</button>
+        <button class="btn small" id="export-btn">Export CSV</button>
+        <button class="btn small" id="logout-btn">Sign out</button>
       </div>
+
+      <div class="notice ok" id="dash-ok" style="display:none"></div>
       <div class="notice err" id="dash-error" style="display:none"></div>
+
+      <!-- Bulk action bar (shown when rows are selected) -->
+      <div class="bulkbar" id="bulkbar" style="display:none">
+        <span id="bulk-count" class="bulk-count"></span>
+        <span class="spacer"></span>
+        <button class="btn small" data-bulk="publish">Publish</button>
+        <button class="btn small" data-bulk="pending">Mark pending</button>
+        <button class="btn small" data-bulk="hide">Hide</button>
+        <button class="btn small" data-bulk="consent_on">Show on map</button>
+        <button class="btn small" data-bulk="consent_off">Remove from map</button>
+        <button class="btn small" id="bulk-export">Export selected</button>
+        <button class="btn small danger" data-bulk="delete">Delete</button>
+        <button class="btn small ghost" id="bulk-clear">Clear</button>
+      </div>
+
       <div class="card" style="padding:0;overflow-x:auto">
         <table class="admin">
           <thead>
             <tr>
+              <th class="col-check"><input type="checkbox" id="select-all" aria-label="Select all" /></th>
               <th>Name</th><th>Location</th><th>Contact</th><th>Email</th>
-              <th>Status</th><th>Added</th><th></th>
+              <th>Status</th><th>Added</th><th class="col-actions"></th>
             </tr>
           </thead>
           <tbody id="admin-rows"></tbody>
         </table>
+        <div class="empty" id="admin-empty" style="display:none">No entries match your filter.</div>
       </div>
+      <p class="muted" id="admin-count" style="margin-top:10px"></p>
     </div>
   </div>
 
@@ -63,6 +93,17 @@
       </div>
       <div class="dialog-body">
         <div class="notice err" id="admin-edit-error" style="display:none"></div>
+
+        <div class="field" id="f-editlink">
+          <label>Private edit link</label>
+          <div class="copybox">
+            <input type="text" id="a-editlink" readonly placeholder="Generate a link to share with this member" />
+            <button type="button" class="btn" id="a-genlink">Generate</button>
+            <button type="button" class="btn" id="a-copylink">Copy</button>
+          </div>
+          <div class="hint">Generating a new link invalidates any link the member had before.</div>
+        </div>
+
         <div class="field" id="f-display_name"><label for="a-name">Name</label>
           <input type="text" id="a-name" maxlength="80" /><div class="err" data-err></div></div>
         <div class="field" id="f-location_name"><label for="a-loc">Location</label>
@@ -82,7 +123,7 @@
           <input type="email" id="a-email" maxlength="254" /><div class="err" data-err></div></div>
         <div style="display:flex;gap:16px;align-items:center">
           <div class="field" style="margin:0"><label for="a-status">Status</label>
-            <select id="a-status" style="padding:9px 12px;border:1px solid var(--line);border-radius:10px">
+            <select id="a-status">
               <option value="published">Published</option>
               <option value="pending">Pending</option>
               <option value="hidden">Hidden</option>
@@ -100,6 +141,57 @@
         <button type="submit" class="btn primary" id="admin-save">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Import dialog -->
+  <dialog id="import-dialog" aria-labelledby="import-title">
+    <div class="dialog-head">
+      <h2 id="import-title">Import members from CSV</h2><span class="spacer"></span>
+      <button type="button" class="icon-btn" id="close-import" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="notice err" id="import-error" style="display:none"></div>
+
+      <!-- Step 1: choose a file -->
+      <div id="import-pick">
+        <p>Upload a CSV exported from this tool, or the raw sign-up sheet. Columns are
+          detected automatically (name, location, contact, email, status). Each location
+          is geocoded to a map pin — you can review and fix matches before importing.</p>
+        <label class="filedrop" id="filedrop">
+          <input type="file" id="csv-file" accept=".csv,text/csv" hidden />
+          <strong>Choose a CSV file</strong>
+          <span class="muted">or drag &amp; drop it here</span>
+        </label>
+      </div>
+
+      <!-- Step 2: review -->
+      <div id="import-review" style="display:none">
+        <div class="import-progress" id="import-progress">
+          <div class="bar"><div class="bar-fill" id="geo-bar"></div></div>
+          <span id="geo-status" class="muted"></span>
+        </div>
+        <div class="import-controls">
+          <button type="button" class="btn small" id="imp-all">Select all</button>
+          <button type="button" class="btn small" id="imp-none">Select none</button>
+          <button type="button" class="btn small" id="imp-matched">Select matched only</button>
+          <span class="spacer"></span>
+          <span class="muted" id="imp-summary"></span>
+        </div>
+        <div class="import-table-wrap">
+          <table class="admin import-table">
+            <thead>
+              <tr><th class="col-check"></th><th>Name</th><th>Location (CSV)</th><th>Resolved pin</th></tr>
+            </thead>
+            <tbody id="import-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <span class="spacer" style="flex:1"></span>
+      <button type="button" class="btn" id="import-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="import-confirm" disabled>Import selected</button>
+    </div>
   </dialog>
 
   <script src="/vendor/leaflet.js"></script>

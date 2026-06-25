@@ -56,15 +56,6 @@ export async function getById(env: Env, id: number): Promise<MemberRow | null> {
     .first<MemberRow>();
 }
 
-export async function findByEmail(env: Env, email: string): Promise<MemberRow[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM members WHERE email = ?`,
-  )
-    .bind(email)
-    .all<MemberRow>();
-  return results;
-}
-
 /** Count submissions from one IP in the trailing window (abuse limiting). */
 export async function countRecentByIp(
   env: Env,
@@ -203,37 +194,109 @@ export async function deleteMember(env: Env, publicId: string): Promise<void> {
     .run();
 }
 
-// ---- Magic links (optional email flow) ----
-
-export async function createMagicLink(
+/**
+ * Replace a member's edit-token hash. Used by the admin "copy edit link"
+ * action to mint a fresh, shareable edit link without ever storing the raw
+ * token. The previous link stops working once a new one is generated.
+ */
+export async function setEditTokenHash(
   env: Env,
-  tokenHash: string,
-  memberId: number,
-  ttlMs: number,
+  publicId: string,
+  editTokenHash: string,
 ): Promise<void> {
-  const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO magic_links (token_hash, member_id, expires_at, created_at)
-     VALUES (?,?,?,?)`,
+    `UPDATE members SET edit_token_hash = ?, updated_at = ? WHERE public_id = ?`,
   )
-    .bind(tokenHash, memberId, now + ttlMs, now)
+    .bind(editTokenHash, Date.now(), publicId)
     .run();
 }
 
-export async function consumeMagicLink(
+// ---- Bulk admin operations (CSV import / batch edits) ----
+
+/**
+ * Insert many members in one go (admin CSV import). D1 caps the size of a
+ * single batch, so callers should chunk large imports; this helper inserts
+ * exactly what it's given in a single `batch()` round-trip.
+ */
+export async function bulkInsertMembers(
   env: Env,
-  tokenHash: string,
-): Promise<number | null> {
-  const row = await env.DB.prepare(
-    `SELECT member_id, expires_at FROM magic_links WHERE token_hash = ?`,
+  rows: InsertMember[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const now = Date.now();
+  const stmt = env.DB.prepare(
+    `INSERT INTO members
+      (public_id, display_name, email, location_name, lat, lng, bio,
+       contact_label, contact_url, consent_public, status, edit_token_hash,
+       ip_hash, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  await env.DB.batch(
+    rows.map((m) =>
+      stmt.bind(
+        m.public_id,
+        m.display_name,
+        m.email,
+        m.location_name,
+        m.lat,
+        m.lng,
+        m.bio,
+        m.contact_label,
+        m.contact_url,
+        m.consent_public,
+        m.status,
+        m.edit_token_hash,
+        m.ip_hash,
+        now,
+        now,
+      ),
+    ),
+  );
+}
+
+function placeholders(n: number): string {
+  return new Array(n).fill("?").join(",");
+}
+
+/** Set the moderation status on many members at once. */
+export async function bulkSetStatus(
+  env: Env,
+  publicIds: string[],
+  status: string,
+): Promise<void> {
+  if (publicIds.length === 0) return;
+  await env.DB.prepare(
+    `UPDATE members SET status = ?, updated_at = ?
+       WHERE public_id IN (${placeholders(publicIds.length)})`,
   )
-    .bind(tokenHash)
-    .first<{ member_id: number; expires_at: number }>();
-  if (!row) return null;
-  // Single-use: delete regardless of validity.
-  await env.DB.prepare(`DELETE FROM magic_links WHERE token_hash = ?`)
-    .bind(tokenHash)
+    .bind(status, Date.now(), ...publicIds)
     .run();
-  if (row.expires_at < Date.now()) return null;
-  return row.member_id;
+}
+
+/** Toggle public consent on many members at once. */
+export async function bulkSetConsent(
+  env: Env,
+  publicIds: string[],
+  consent: number,
+): Promise<void> {
+  if (publicIds.length === 0) return;
+  await env.DB.prepare(
+    `UPDATE members SET consent_public = ?, updated_at = ?
+       WHERE public_id IN (${placeholders(publicIds.length)})`,
+  )
+    .bind(consent, Date.now(), ...publicIds)
+    .run();
+}
+
+/** Delete many members at once. */
+export async function bulkDeleteMembers(
+  env: Env,
+  publicIds: string[],
+): Promise<void> {
+  if (publicIds.length === 0) return;
+  await env.DB.prepare(
+    `DELETE FROM members WHERE public_id IN (${placeholders(publicIds.length)})`,
+  )
+    .bind(...publicIds)
+    .run();
 }

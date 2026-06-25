@@ -32,14 +32,6 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_members_public_status ON members (status, consent_public)`,
   `CREATE INDEX IF NOT EXISTS idx_members_email ON members (email)`,
   `CREATE INDEX IF NOT EXISTS idx_members_ip_created ON members (ip_hash, created_at)`,
-  `CREATE TABLE IF NOT EXISTS magic_links (
-     token_hash  TEXT PRIMARY KEY,
-     member_id   INTEGER NOT NULL,
-     expires_at  INTEGER NOT NULL,
-     created_at  INTEGER NOT NULL,
-     FOREIGN KEY (member_id) REFERENCES members (id) ON DELETE CASCADE
-   )`,
-  `CREATE INDEX IF NOT EXISTS idx_magic_expires ON magic_links (expires_at)`,
 ];
 
 let schemaReady: Promise<void> | null = null;

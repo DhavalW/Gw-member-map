@@ -2,8 +2,6 @@ import type { Env, MemberRow } from "./types";
 import {
   ADMIN_COOKIE,
   createAdminSession,
-  createMemberSession,
-  escapeHtml,
   isAdminConfigured,
   parseCookies,
   randomToken,
@@ -17,26 +15,31 @@ import {
 } from "./security";
 import {
   adminUpdateMember,
-  consumeMagicLink,
+  bulkDeleteMembers,
+  bulkInsertMembers,
+  bulkSetConsent,
+  bulkSetStatus,
   countRecentByIp,
-  createMagicLink,
   deleteMember,
-  findByEmail,
   getByPublicId,
   insertMember,
   listAllMembers,
   listPublicMembers,
+  setEditTokenHash,
   toOwner,
   updateMember,
 } from "./db";
+import type { InsertMember } from "./db";
 import { geocode } from "./geocode";
 import { ensureSchema } from "./schema";
-import { emailConfigured, sendEmail } from "./email";
 import { validateSubmission } from "./validate";
 
 const SUBMIT_LIMIT = 5; // submissions per IP per hour
 const SUBMIT_WINDOW_MS = 60 * 60 * 1000;
-const MAGIC_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Largest bulk import accepted in a single request, and the per-batch chunk
+// size (D1 limits how many statements one batch() may contain).
+const IMPORT_MAX_ROWS = 5000;
+const IMPORT_CHUNK = 50;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -85,10 +88,11 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   // --- Public config (drives the front-end) ---
   if (pathname === "/api/config" && method === "GET") {
     return json({
-      appName: env.APP_NAME || "Member Map",
+      appName: env.APP_NAME || "Generalist World Member Map",
+      communityName: env.COMMUNITY_NAME || "Generalist World",
+      communityUrl: env.COMMUNITY_URL || "https://generalist.world/",
       moderationEnabled: env.MODERATION_ENABLED === "true",
       adminConfigured: isAdminConfigured(env),
-      emailConfigured: emailConfigured(env),
       turnstileSiteKey: env.TURNSTILE_SITE_KEY || "",
     });
   }
@@ -126,16 +130,6 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     return handleCreate(request, env);
   }
 
-  // --- Email magic-link request (anti-enumeration: always 200) ---
-  if (pathname === "/api/request-edit-link" && method === "POST") {
-    return handleRequestEditLink(request, env);
-  }
-
-  // --- Consume a magic link -> redirect into the edit page with a session ---
-  if (pathname === "/api/magic" && method === "GET") {
-    return handleMagicConsume(request, env, url);
-  }
-
   // --- Member by id: GET (load for edit) / PUT (update) / DELETE ---
   const memberMatch = pathname.match(/^\/api\/members\/([A-Za-z0-9_-]+)$/);
   if (memberMatch) {
@@ -167,6 +161,21 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
     const members = await listAllMembers(env);
     return json({ members });
+  }
+  // --- Admin: mint a fresh, shareable edit link for one member ---
+  const editLinkMatch = pathname.match(
+    /^\/api\/admin\/members\/([A-Za-z0-9_-]+)\/edit-link$/,
+  );
+  if (editLinkMatch && method === "POST") {
+    return handleAdminEditLink(request, env, editLinkMatch[1]!);
+  }
+  // --- Admin: bulk status/consent/delete on many members ---
+  if (pathname === "/api/admin/bulk" && method === "POST") {
+    return handleAdminBulk(request, env);
+  }
+  // --- Admin: CSV import (rows already geocoded client-side) ---
+  if (pathname === "/api/admin/import" && method === "POST") {
+    return handleAdminImport(request, env);
   }
 
   return json({ error: "Not found" }, 404);
@@ -312,17 +321,6 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
 
   const editUrl = `${baseUrl(request, env)}/edit?id=${publicId}#k=${editToken}`;
 
-  // If they gave an email and email is configured, also send the link.
-  if (v.email && emailConfigured(env)) {
-    await sendEmail(
-      env,
-      v.email,
-      `Your ${env.APP_NAME || "Member Map"} edit link`,
-      `Thanks for joining the map! Edit or remove your entry any time:\n\n${editUrl}\n\nKeep this link private — anyone with it can edit your entry.`,
-      editEmailHtml(env, editUrl),
-    );
-  }
-
   return json({
     ok: true,
     id: publicId,
@@ -413,58 +411,138 @@ async function handleDelete(request: Request, env: Env, publicId: string): Promi
   return json({ ok: true });
 }
 
-async function handleRequestEditLink(request: Request, env: Env): Promise<Response> {
+/**
+ * Admin: mint a fresh edit link for a member. We only ever store the hash of
+ * the edit token, so the original can't be recovered — instead we generate a
+ * new token, store its hash (invalidating any previous link), and hand the
+ * full URL back to the admin to pass on to the member.
+ */
+async function handleAdminEditLink(
+  request: Request,
+  env: Env,
+  publicId: string,
+): Promise<Response> {
   if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
-  const body = await readJson(request);
-  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
 
-  // Always respond the same way so the endpoint can't be used to test which
-  // emails exist in the directory.
-  const genericOk = json({
-    ok: true,
-    message: "If that email is on the map, we've sent an edit link.",
-  });
+  const row = await getByPublicId(env, publicId);
+  if (!row) return json({ error: "Not found" }, 404);
 
-  if (!email || !emailConfigured(env) || !env.SESSION_SECRET) return genericOk;
-
-  const members = await findByEmail(env, email);
-  for (const m of members) {
-    const token = randomToken(32);
-    const tokenHash = await sha256Hex(token);
-    await createMagicLink(env, tokenHash, m.id, MAGIC_TTL_MS);
-    const link = `${baseUrl(request, env)}/api/magic?token=${token}`;
-    await sendEmail(
-      env,
-      email,
-      `Your ${env.APP_NAME || "Member Map"} sign-in link`,
-      `Click to edit your map entry (valid for 30 minutes):\n\n${link}`,
-      editEmailHtml(env, link),
-    );
-  }
-  return genericOk;
+  const editToken = randomToken(32);
+  await setEditTokenHash(env, publicId, await sha256Hex(editToken));
+  const editUrl = `${baseUrl(request, env)}/edit?id=${publicId}#k=${editToken}`;
+  return json({ ok: true, editUrl });
 }
 
-async function handleMagicConsume(request: Request, env: Env, url: URL): Promise<Response> {
-  const token = url.searchParams.get("token");
-  if (!token || !env.SESSION_SECRET) {
-    return Response.redirect(`${baseUrl(request, env)}/edit?error=invalid`, 302);
+/** Admin: apply a status/consent/delete action across many members. */
+async function handleAdminBulk(request: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+  if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
+
+  const body = await readJson(request);
+  const ids = Array.isArray(body?.ids)
+    ? body!.ids.filter((x): x is string => typeof x === "string")
+    : [];
+  const action = typeof body?.action === "string" ? body.action : "";
+  if (ids.length === 0) return json({ error: "No members selected." }, 400);
+
+  switch (action) {
+    case "publish":
+      await bulkSetStatus(env, ids, "published");
+      break;
+    case "hide":
+      await bulkSetStatus(env, ids, "hidden");
+      break;
+    case "pending":
+      await bulkSetStatus(env, ids, "pending");
+      break;
+    case "consent_on":
+      await bulkSetConsent(env, ids, 1);
+      break;
+    case "consent_off":
+      await bulkSetConsent(env, ids, 0);
+      break;
+    case "delete":
+      await bulkDeleteMembers(env, ids);
+      break;
+    default:
+      return json({ error: "Unknown action." }, 400);
   }
-  const tokenHash = await sha256Hex(token);
-  const memberId = await consumeMagicLink(env, tokenHash);
-  if (!memberId) {
-    return Response.redirect(`${baseUrl(request, env)}/edit?error=expired`, 302);
+  return json({ ok: true, count: ids.length });
+}
+
+/**
+ * Admin: bulk CSV import. Rows arrive already geocoded by the admin UI (which
+ * resolves each free-text location to lat/lng through the geocode proxy and
+ * lets the admin review/fix matches first), so the Worker just validates and
+ * inserts. Each row gets a fresh public id + edit-token hash.
+ */
+async function handleAdminImport(request: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+  if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
+
+  const body = await readJson(request);
+  const rows = Array.isArray(body?.members) ? body!.members : null;
+  if (!rows) return json({ error: "Expected a members array." }, 400);
+  if (rows.length > IMPORT_MAX_ROWS) {
+    return json({ error: `Too many rows (max ${IMPORT_MAX_ROWS}).` }, 400);
   }
-  const row = await env.DB.prepare(`SELECT * FROM members WHERE id = ?`)
-    .bind(memberId)
-    .first<MemberRow>();
-  if (!row) {
-    return Response.redirect(`${baseUrl(request, env)}/edit?error=invalid`, 302);
+
+  const prepared: InsertMember[] = [];
+  const skipped: { row: number; reason: string }[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = (rows[i] ?? {}) as Record<string, unknown>;
+    const result = validateSubmission(
+      {
+        display_name: r.display_name ?? r.name,
+        location_name: r.location_name ?? r.location,
+        bio: r.bio,
+        contact: r.contact ?? r.contactLabel,
+        email: r.email,
+        lat: r.lat,
+        lng: r.lng,
+        consent_public: true,
+      },
+      { requireConsent: false },
+    );
+    if (!result.ok || !result.value) {
+      skipped.push({ row: i + 1, reason: Object.values(result.errors)[0] || "Invalid row" });
+      continue;
+    }
+    const v = result.value;
+    // Contact may arrive pre-split (label + url) from our own export.
+    const contactLabel =
+      typeof r.contactLabel === "string" && r.contactLabel ? r.contactLabel : v.contact_label;
+    const contactUrl =
+      typeof r.contactUrl === "string" ? r.contactUrl : v.contact_url;
+    const status = ["published", "pending", "hidden"].includes(String(r.status))
+      ? String(r.status)
+      : "published";
+    const consent = r.consent_public === false || r.consentPublic === false ? 0 : 1;
+
+    prepared.push({
+      public_id: randomToken(9),
+      display_name: v.display_name,
+      email: v.email,
+      location_name: v.location_name,
+      lat: v.lat,
+      lng: v.lng,
+      bio: v.bio,
+      contact_label: contactLabel,
+      contact_url: contactUrl,
+      consent_public: consent,
+      status,
+      edit_token_hash: await sha256Hex(randomToken(32)),
+      ip_hash: null,
+    });
   }
-  const session = await createMemberSession(env.SESSION_SECRET, row.public_id);
-  return Response.redirect(
-    `${baseUrl(request, env)}/edit?id=${row.public_id}#k=${session}`,
-    302,
-  );
+
+  for (let i = 0; i < prepared.length; i += IMPORT_CHUNK) {
+    await bulkInsertMembers(env, prepared.slice(i, i + IMPORT_CHUNK));
+  }
+
+  return json({ ok: true, imported: prepared.length, skipped });
 }
 
 async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
@@ -491,16 +569,4 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
       "Cache-Control": "no-store",
     },
   });
-}
-
-function editEmailHtml(env: Env, link: string): string {
-  const app = escapeHtml(env.APP_NAME || "Member Map");
-  const safe = escapeHtml(link);
-  return `<!doctype html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#1a1a1a">
-    <h2 style="margin:0 0 12px">${app}</h2>
-    <p>Use the button below to edit or remove your entry on the map.</p>
-    <p><a href="${safe}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Edit my entry</a></p>
-    <p style="color:#666;font-size:13px">If the button doesn't work, copy this link:<br>${safe}</p>
-    <p style="color:#666;font-size:13px">Keep this link private — anyone with it can edit your entry.</p>
-  </body></html>`;
 }

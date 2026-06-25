@@ -191,6 +191,68 @@ table.admin th { color: var(--muted); font-weight: 600; }
 .badge.pending { background: #fffaeb; color: #b54708; border-color: #fedf89; }
 .badge.hidden { background: #f2f4f7; color: #475467; }
 
+/* Branding ---------------------------------------------------------------- */
+.brand { display: flex; flex-direction: column; line-height: 1.15; flex: 0 0 auto; }
+.brand h1 { font-size: 18px; margin: 0; }
+.brand-link { font-size: 12px; color: var(--muted); text-decoration: none; font-weight: 600; }
+.brand-link:hover { color: var(--brand); text-decoration: underline; }
+
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { background: #f0f5ff; color: var(--brand); border-color: transparent; }
+
+.field select {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: 10px; font: inherit; background: #fff; color: var(--ink);
+}
+
+/* Admin layout ------------------------------------------------------------ */
+.admin-wrap { max-width: 1100px; }
+.admin-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+
+.admin-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.admin-toolbar input {
+  flex: 1 1 240px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit;
+}
+.admin-toolbar .spacer { flex: 1 1 auto; }
+
+.bulkbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #eef4ff; border: 1px solid #cdddff; border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 12px; position: sticky; top: 8px; z-index: 5;
+}
+.bulk-count { font-weight: 700; color: var(--brand); }
+.bulkbar .spacer { flex: 1 1 auto; }
+
+table.admin td.col-check, table.admin th.col-check { width: 34px; text-align: center; padding-right: 0; }
+table.admin .row-check { width: 16px; height: 16px; cursor: pointer; }
+table.admin tr.selected { background: #f4f8ff; }
+table.admin .col-actions { text-align: right; white-space: nowrap; }
+.row-actions { display: inline-flex; gap: 6px; justify-content: flex-end; }
+.badge.published { text-transform: capitalize; }
+
+/* Import dialog ----------------------------------------------------------- */
+#import-dialog { width: min(720px, 96vw); }
+.filedrop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  border: 2px dashed var(--line); border-radius: 12px; padding: 32px; cursor: pointer;
+  text-align: center; transition: border-color .15s, background .15s; margin-top: 10px;
+}
+.filedrop:hover, .filedrop.over { border-color: var(--brand); background: #f5f9ff; }
+.filedrop strong { color: var(--brand); }
+
+.import-progress { margin-bottom: 12px; }
+.import-progress .bar { height: 8px; background: #eef1f5; border-radius: 999px; overflow: hidden; margin-bottom: 6px; }
+.import-progress .bar-fill { height: 100%; width: 0; background: var(--brand); transition: width .2s; }
+
+.import-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.import-controls .spacer { flex: 1 1 auto; }
+.import-table-wrap { max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.import-table { font-size: 13px; }
+.import-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.pin-ok { color: var(--ok); font-size: 12px; }
+.pin-warn { color: #b54708; font-size: 12px; }
+
 @media (max-width: 720px) {
   aside.sidebar { display: none; }
+  header.topbar .brand h1 { font-size: 16px; }
 }

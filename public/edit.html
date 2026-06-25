@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Edit your entry — Member Map</title>
+  <title>Edit your entry — Generalist World Member Map</title>
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
@@ -12,23 +12,14 @@
     <p><a href="/">&larr; Back to the map</a></p>
     <h1>Edit your entry</h1>
 
-    <!-- No credential / request-by-email view -->
+    <!-- No / invalid credential view -->
     <div class="card" id="request-view" style="display:none">
       <div class="notice err" id="request-error" style="display:none"></div>
       <p>To edit your entry, open the private edit link you saved when you joined.</p>
-      <div id="email-request" style="display:none">
-        <p class="muted">Lost it? If you gave an email address, we can send it again.</p>
-        <form id="request-form" novalidate>
-          <div class="field">
-            <label for="req-email">Your email</label>
-            <input type="email" id="req-email" name="email" maxlength="254" required autocomplete="email" />
-          </div>
-          <button type="submit" class="btn primary">Email me my edit link</button>
-        </form>
-        <div class="notice ok" id="request-sent" style="display:none">
-          If that email is on the map, we’ve sent an edit link. Check your inbox.
-        </div>
-      </div>
+      <p class="muted">Lost your link? A <strong>Generalist World</strong> admin can generate a
+        fresh one for you in seconds — just ask in the community and share the name and
+        location you signed up with.</p>
+      <p><a class="btn" href="/">&larr; Back to the map</a></p>
     </div>
 
     <!-- Loading -->
