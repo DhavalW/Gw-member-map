@@ -216,10 +216,27 @@ table.admin th { color: var(--muted); font-weight: 600; }
 .admin-toolbar .spacer { flex: 1 1 auto; }
 
 .bulkbar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  /* Default hidden; JS reveals it (as flex) when rows are selected. The strict
+     CSP blocks inline style attributes, so visibility lives in CSS, not markup. */
+  display: none; align-items: center; gap: 8px; flex-wrap: wrap;
   background: #eef4ff; border: 1px solid #cdddff; border-radius: 10px;
   padding: 8px 12px; margin-bottom: 12px; position: sticky; top: 8px; z-index: 5;
 }
+
+/* Scrollable table card. `overflow` must come from CSS (not an inline style
+   attribute) or the strict `style-src 'self'` CSP drops it and the table
+   spills past the card. */
+.table-card { padding: 0; overflow: hidden; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll table.admin { min-width: 860px; }
+.admin-count { margin-top: 10px; }
+
+/* These start hidden and are toggled via the CSSOM by JS. Defining the hidden
+   state in CSS (rather than a CSP-blocked inline style) avoids a flash of empty
+   panels/notices on load. */
+#login-view { max-width: 420px; }
+#login-view, #not-configured, #dash-view, #admin-empty,
+#dash-ok, #dash-error, #login-error, #import-error, #admin-edit-error { display: none; }
 .bulk-count { font-weight: 700; color: var(--brand); }
 .bulkbar .spacer { flex: 1 1 auto; }
 

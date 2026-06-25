@@ -497,26 +497,33 @@ function startReview(text) {
   geocodeAll();
 }
 
+/** Build the "Resolved pin" cell for an import row. */
+function pinCell(r) {
+  if (r.state === "matched")
+    return el("span", { class: "pin-ok", text: r.matchedLabel || `${r.lat.toFixed(3)}, ${r.lng.toFixed(3)}` });
+  if (r.state === "pending")
+    return el("span", { class: "muted", text: "…" });
+  // review / error: importable as a pending draft the member can fix via their link.
+  const reason = r.state === "error" ? "Lookup failed" : "No confident match";
+  return el("span", { class: "pin-warn", text: `${reason} — imports as pending` });
+}
+
 function renderImportRows() {
   const tbody = document.getElementById("import-rows");
   tbody.replaceChildren();
   importState.rows.forEach((r, i) => {
     const check = el("input", { type: "checkbox", class: "row-check" });
     check.checked = r.include;
-    check.disabled = r.state !== "matched";
+    // Every row is selectable: unresolved ones import as a pending draft so an
+    // admin can send the member their edit link to set a location manually.
+    check.disabled = r.state === "pending"; // only while geocoding is in flight
     check.addEventListener("change", () => { r.include = check.checked; updateImportSummary(); });
-
-    let resolved;
-    if (r.state === "matched") resolved = el("span", { class: "pin-ok", text: r.matchedLabel || `${r.lat?.toFixed(3)}, ${r.lng?.toFixed(3)}` });
-    else if (r.state === "review") resolved = el("span", { class: "pin-warn", text: "No confident match — skipped" });
-    else if (r.state === "error") resolved = el("span", { class: "pin-warn", text: "Lookup failed" });
-    else resolved = el("span", { class: "muted", text: "…" });
 
     tbody.append(el("tr", { "data-i": i }, [
       el("td", { class: "col-check" }, [check]),
       el("td", { text: r.name || "—" }),
       el("td", { text: r.location || "—" }),
-      el("td", {}, [resolved]),
+      el("td", {}, [pinCell(r)]),
     ]));
   });
   updateImportSummary();
@@ -527,23 +534,18 @@ function updateImportRow(i) {
   const tr = document.querySelector(`#import-rows tr[data-i="${i}"]`);
   if (!tr) return;
   const check = tr.querySelector(".row-check");
-  check.disabled = r.state !== "matched";
+  check.disabled = r.state === "pending";
   check.checked = r.include;
-  const cell = tr.children[3];
-  cell.replaceChildren(
-    r.state === "matched"
-      ? el("span", { class: "pin-ok", text: r.matchedLabel || `${r.lat.toFixed(3)}, ${r.lng.toFixed(3)}` })
-      : r.state === "review"
-        ? el("span", { class: "pin-warn", text: "No confident match — skipped" })
-        : r.state === "error"
-          ? el("span", { class: "pin-warn", text: "Lookup failed" })
-          : el("span", { class: "muted", text: "…" }),
-  );
+  tr.children[3].replaceChildren(pinCell(r));
 }
+
+// A row can be selected once geocoding has settled it either way (matched, or
+// unresolved → review/error). Rows still "pending" a lookup aren't selectable yet.
+const isSelectable = (r) => r.state !== "pending";
 
 function setAllInclude(predicate) {
   for (const r of importState.rows) {
-    r.include = r.state === "matched" && predicate(r);
+    r.include = isSelectable(r) && predicate(r);
   }
   renderImportRows();
 }
@@ -551,12 +553,14 @@ function setAllInclude(predicate) {
 function updateImportSummary() {
   const total = importState.rows.length;
   const matched = importState.rows.filter((r) => r.state === "matched").length;
-  const chosen = importState.rows.filter((r) => r.include).length;
+  const chosen = importState.rows.filter((r) => r.include);
+  const unresolved = chosen.filter((r) => r.state !== "matched").length;
   document.getElementById("imp-summary").textContent =
-    `${total} rows · ${matched} matched · ${chosen} selected`;
-  document.getElementById("import-confirm").disabled = chosen === 0 || importState.geocoding;
+    `${total} rows · ${matched} matched · ${chosen.length} selected` +
+    (unresolved ? ` (${unresolved} as pending)` : "");
+  document.getElementById("import-confirm").disabled = chosen.length === 0 || importState.geocoding;
   document.getElementById("import-confirm").textContent =
-    chosen ? `Import ${chosen} selected` : "Import selected";
+    chosen.length ? `Import ${chosen.length} selected` : "Import selected";
 }
 
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -597,30 +601,41 @@ async function geocodeAll() {
   }
 
   importState.geocoding = false;
+  const matched = importState.rows.filter((r) => r.state === "matched").length;
+  const unresolved = importState.rows.length - matched;
   status.textContent = importState.cancelled
     ? "Cancelled."
-    : `Done. ${importState.rows.filter((r) => r.state === "matched").length} of ${importState.rows.length} rows have a pin.`;
+    : `Done. ${matched} of ${importState.rows.length} rows got a pin` +
+      (unresolved ? `; ${unresolved} can still be imported as pending drafts.` : ".");
   bar.style.width = "100%";
   updateImportSummary();
 }
 
 async function confirmImport() {
-  const rows = importState.rows.filter((r) => r.include && r.state === "matched");
+  const rows = importState.rows.filter((r) => r.include && isSelectable(r));
   if (!rows.length) return;
   const btn = document.getElementById("import-confirm");
   btn.disabled = true;
   btn.textContent = "Importing…";
 
-  const members = rows.map((r) => ({
-    display_name: r.name || r.location,
-    location_name: r.location || r.matchedLabel,
-    lat: r.lat,
-    lng: r.lng,
-    contact: r.contact,
-    email: r.email,
-    status: ["published", "pending", "hidden"].includes(r.status) ? r.status : "published",
-    consent_public: r.consentPublic,
-  }));
+  const members = rows.map((r) => {
+    const matched = r.state === "matched";
+    return {
+      display_name: r.name || r.location,
+      location_name: r.location || r.matchedLabel,
+      // Unresolved rows are imported at a placeholder pin and held as "pending"
+      // (never shown publicly) until the member sets their real location via the
+      // edit link an admin sends them.
+      lat: matched ? r.lat : 0,
+      lng: matched ? r.lng : 0,
+      contact: r.contact,
+      email: r.email,
+      status: matched
+        ? (["published", "pending", "hidden"].includes(r.status) ? r.status : "published")
+        : "pending",
+      consent_public: r.consentPublic,
+    };
+  });
 
   const { ok, data } = await api("/api/admin/import", { method: "POST", body: { members } });
   if (!ok) {
@@ -629,9 +644,12 @@ async function confirmImport() {
     btn.textContent = "Import selected";
     return;
   }
+  const pendingCount = members.filter((m) => m.status === "pending").length;
   closeImport();
   await refresh();
   const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
   flash("dash-ok",
-    `Imported ${data.imported} member${data.imported === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : ""}.`);
+    `Imported ${data.imported} member${data.imported === 1 ? "" : "s"}` +
+    (pendingCount ? `, ${pendingCount} held as pending (no location yet — send those members their edit link)` : "") +
+    (skipped ? `; skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : "") + ".");
 }

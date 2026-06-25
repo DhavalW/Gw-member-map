@@ -67,20 +67,22 @@
         <button class="btn small ghost" id="bulk-clear">Clear</button>
       </div>
 
-      <div class="card" style="padding:0;overflow-x:auto">
-        <table class="admin">
-          <thead>
-            <tr>
-              <th class="col-check"><input type="checkbox" id="select-all" aria-label="Select all" /></th>
-              <th>Name</th><th>Location</th><th>Contact</th><th>Email</th>
-              <th>Status</th><th>Added</th><th class="col-actions"></th>
-            </tr>
-          </thead>
-          <tbody id="admin-rows"></tbody>
-        </table>
-        <div class="empty" id="admin-empty" style="display:none">No entries match your filter.</div>
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="admin">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="select-all" aria-label="Select all" /></th>
+                <th>Name</th><th>Location</th><th>Contact</th><th>Email</th>
+                <th>Status</th><th>Added</th><th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody id="admin-rows"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="admin-empty">No entries match your filter.</div>
       </div>
-      <p class="muted" id="admin-count" style="margin-top:10px"></p>
+      <p class="muted admin-count" id="admin-count"></p>
     </div>
   </div>
 
@@ -156,7 +158,9 @@
       <div id="import-pick">
         <p>Upload a CSV exported from this tool, or the raw sign-up sheet. Columns are
           detected automatically (name, location, contact, email, status). Each location
-          is geocoded to a map pin — you can review and fix matches before importing.</p>
+          is geocoded to a map pin — you can review matches before importing. Rows that
+          don’t resolve can still be imported as <strong>pending drafts</strong>; copy
+          their edit link afterwards so the member can set their location.</p>
         <label class="filedrop" id="filedrop">
           <input type="file" id="csv-file" accept=".csv,text/csv" hidden />
           <strong>Choose a CSV file</strong>
