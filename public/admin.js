@@ -69,6 +69,10 @@ async function loadDashboard() {
 
   document.getElementById("logout-btn").addEventListener("click", onLogout);
   document.getElementById("admin-filter").addEventListener("input", render);
+  document.getElementById("filter-status").addEventListener("change", render);
+  document.getElementById("filter-consent").addEventListener("change", render);
+  document.getElementById("filter-location").addEventListener("change", render);
+  document.getElementById("filter-clear").addEventListener("click", clearFilters);
   document.getElementById("export-btn").addEventListener("click", () => exportCsv(MEMBERS));
   document.getElementById("bulk-export").addEventListener("click", exportSelected);
   document.getElementById("select-all").addEventListener("change", onSelectAll);
@@ -85,11 +89,43 @@ async function onLogout() {
 }
 
 // --- Rendering ------------------------------------------------------------
+// A member is treated as "needs location" when it sits on the placeholder pin
+// (0,0) used for unresolved imports.
+const needsLocation = (m) => Number(m.lat) === 0 && Number(m.lng) === 0;
+
 function filteredMembers() {
   const q = document.getElementById("admin-filter").value.trim().toLowerCase();
-  if (!q) return MEMBERS;
-  return MEMBERS.filter((m) =>
-    [m.name, m.location, m.email, m.contactLabel].some((f) => (f || "").toLowerCase().includes(q)));
+  const status = document.getElementById("filter-status").value;
+  const consent = document.getElementById("filter-consent").value;
+  const location = document.getElementById("filter-location").value;
+
+  return MEMBERS.filter((m) => {
+    if (status && m.status !== status) return false;
+    if (consent === "on" && !m.consentPublic) return false;
+    if (consent === "off" && m.consentPublic) return false;
+    if (location === "missing" && !needsLocation(m)) return false;
+    if (location === "has" && needsLocation(m)) return false;
+    if (q && ![m.name, m.location, m.email, m.contactLabel].some((f) => (f || "").toLowerCase().includes(q)))
+      return false;
+    return true;
+  });
+}
+
+function anyFilterActive() {
+  return Boolean(
+    document.getElementById("admin-filter").value.trim() ||
+    document.getElementById("filter-status").value ||
+    document.getElementById("filter-consent").value ||
+    document.getElementById("filter-location").value,
+  );
+}
+
+function clearFilters() {
+  document.getElementById("admin-filter").value = "";
+  document.getElementById("filter-status").value = "";
+  document.getElementById("filter-consent").value = "";
+  document.getElementById("filter-location").value = "";
+  render();
 }
 
 function render() {
@@ -126,9 +162,15 @@ function render() {
     tbody.append(row);
   }
 
+  const active = anyFilterActive();
+  document.getElementById("admin-empty").textContent = active
+    ? "No entries match these filters."
+    : "No entries yet.";
   document.getElementById("admin-empty").style.display = members.length ? "none" : "block";
-  document.getElementById("admin-count").textContent =
-    `${MEMBERS.length} total · ${members.length} shown`;
+  document.getElementById("admin-count").textContent = active
+    ? `${members.length} shown · ${MEMBERS.length} total`
+    : `${MEMBERS.length} total`;
+  document.getElementById("filter-clear").style.display = active ? "inline-flex" : "none";
   syncSelectionUi();
 }
 

@@ -211,9 +211,14 @@ table.admin th { color: var(--muted); font-weight: 600; }
 
 .admin-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .admin-toolbar input {
-  flex: 1 1 240px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit;
+  flex: 1 1 220px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit;
 }
 .admin-toolbar .spacer { flex: 1 1 auto; }
+.filter-select {
+  flex: 0 0 auto; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 10px; font: inherit; background: #fff; color: var(--ink); cursor: pointer;
+}
+#filter-clear { display: none; }
 
 .bulkbar {
   /* Default hidden; JS reveals it (as flex) when rows are selected. The strict
