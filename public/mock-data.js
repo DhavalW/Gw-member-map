@@ -1,14 +1,13 @@
 // =============================================================================
-// DEMO DATA — safe to remove at any time.
+// DEMO DATA — sample pins for previewing the map.
 //
-// To remove all mock members:
-//   1. Delete this file (public/mock-data.js)
-//   2. Remove the import line in app.js:
-//        import { MOCK_MEMBERS } from "/mock-data.js";
-//   3. Remove the spread in loadMembers() in app.js:
-//        ...MOCK_MEMBERS,
+// These are HIDDEN by default. Toggle them on via the "Show demo data" switch
+// in the on-screen Debug panel (bottom-left). The preference is remembered in
+// localStorage. They exist only in the browser — nothing is written to the
+// database — so they never affect real members, exports, or the admin panel.
 //
-// These members exist only in the browser — nothing is written to the database.
+// To remove them entirely: delete this file and the MOCK_MEMBERS import +
+// usage in app.js.
 // =============================================================================
 
 export const MOCK_MEMBERS = [

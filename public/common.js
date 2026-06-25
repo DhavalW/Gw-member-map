@@ -72,6 +72,7 @@ export function installDebugOverlay() {
   if (window.__debugOverlay) return window.__debugOverlay;
 
   const lines = [];
+  const controls = []; // custom control nodes added by pages (e.g. demo toggle)
   let panel = null;
 
   const btn = document.createElement("button");
@@ -100,6 +101,17 @@ export function installDebugOverlay() {
       "background:#0b0d10;color:#e6edf3;border-radius:12px;padding:12px;" +
       "box-shadow:0 8px 30px rgba(0,0,0,.5);font:12px ui-monospace,monospace;" +
       "overflow:auto;white-space:pre-wrap;word-break:break-word";
+
+    // Custom controls (e.g. the "Show demo data" toggle) sit above the log.
+    if (controls.length) {
+      const ctrlBar = document.createElement("div");
+      ctrlBar.style.cssText =
+        "display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;padding-bottom:10px;" +
+        "border-bottom:1px solid #21262d";
+      for (const c of controls) ctrlBar.append(c);
+      panel.append(ctrlBar);
+    }
+
     const bar = document.createElement("div");
     bar.style.cssText = "display:flex;gap:8px;margin-bottom:8px";
     const copy = document.createElement("button");
@@ -146,8 +158,65 @@ export function installDebugOverlay() {
   if (document.body) mount();
   else document.addEventListener("DOMContentLoaded", mount);
 
-  window.__debugOverlay = { log: (...a) => add("LOG", a) };
+  /**
+   * Register a custom control node shown at the top of the debug panel.
+   * Pages use this to add their own switches (e.g. the demo-data toggle)
+   * without baking page-specific logic into the shared overlay.
+   */
+  function addControl(node) {
+    controls.push(node);
+    return node;
+  }
+
+  window.__debugOverlay = { log: (...a) => add("LOG", a), addControl };
   return window.__debugOverlay;
+}
+
+/**
+ * A small labelled on/off switch for the debug panel. Returns the element;
+ * `onChange(checked)` fires on toggle. Persists to localStorage when `key`
+ * is given (default off).
+ */
+export function debugToggle({ label, key, onChange }) {
+  const initial = key ? localStorage.getItem(key) === "1" : false;
+  // Style via the CSSOM (element.style), not a `style=` attribute, so this
+  // works under the strict `style-src 'self'` CSP (which blocks inline styles).
+  const wrap = document.createElement("label");
+  wrap.style.cssText =
+    "display:flex;align-items:center;gap:8px;cursor:pointer;color:#e6edf3;font:600 12px system-ui";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = initial;
+  input.style.cssText = "width:16px;height:16px;cursor:pointer";
+  input.addEventListener("change", () => {
+    if (key) localStorage.setItem(key, input.checked ? "1" : "0");
+    onChange?.(input.checked);
+  });
+  wrap.append(input, document.createTextNode(label));
+  // Expose the initial state so callers can sync without re-reading storage.
+  wrap.checked = initial;
+  return wrap;
+}
+
+/** Trigger a client-side file download (used for CSV export). */
+export function downloadFile(filename, text, type = "text/csv;charset=utf-8") {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Copy text to the clipboard, returning true on success. */
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeStringify(o) {

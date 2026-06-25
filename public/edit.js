@@ -15,17 +15,6 @@ init().catch((err) => console.error(err));
 async function init() {
   CONFIG = await getConfig();
 
-  // Surface magic-link errors passed back as ?error=
-  const errParam = params.get("error");
-  if (errParam) {
-    showRequestView(
-      errParam === "expired"
-        ? "That sign-in link has expired. Request a new one below."
-        : "That link is invalid. Request a new one below.",
-    );
-    return;
-  }
-
   if (!publicId || !credential) {
     showRequestView();
     return;
@@ -60,19 +49,6 @@ function showRequestView(message) {
     box.textContent = message;
     box.style.display = "block";
   }
-  if (CONFIG.emailConfigured) {
-    document.getElementById("email-request").style.display = "block";
-  }
-  document.getElementById("request-form")?.addEventListener("submit", onRequestLink);
-}
-
-async function onRequestLink(e) {
-  e.preventDefault();
-  const email = document.getElementById("req-email").value;
-  await api("/api/request-edit-link", { method: "POST", body: { email } });
-  // Always show the same generic message (no account enumeration).
-  document.getElementById("request-sent").style.display = "block";
-  document.getElementById("request-form").style.display = "none";
 }
 
 function showEditView(m) {

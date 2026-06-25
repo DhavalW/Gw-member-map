@@ -1,9 +1,10 @@
-# Member Map
+# Generalist World Member Map
 
-A **spatial member directory** on a world map, hosted entirely on Cloudflare.
-Members add themselves through a simple, opt-in form; each submission appears as
-a pin on a shared map. Members can edit or remove their own entry later, and
-admins can fix or remove any entry.
+A **spatial member directory** on a world map for
+[**Generalist World**](https://generalist.world/), hosted entirely on
+Cloudflare. Members add themselves through a simple, opt-in form; each
+submission appears as a pin on a shared map. Members can edit or remove their
+own entry later, and admins can fix, import, export, or remove entries.
 
 Built on **Cloudflare Workers** (API + static hosting) and **Cloudflare D1**
 (SQLite). The map uses **Leaflet** with **OpenStreetMap** tiles — no API keys,
@@ -21,13 +22,18 @@ site runs under a strict Content-Security-Policy.
   proxied through the Worker), choose a match, or click/drag a pin on the map.
 - **Live world map** — pins **cluster** when zoomed out, with a **searchable
   sidebar** list. Clicking a name flies to and opens its pin.
-- **Members edit their own entry** two ways:
-  1. **Secret edit link** — shown once on submission and (optionally) emailed.
-     Works out of the box with zero extra configuration.
-  2. **Email magic link** — "email me my edit link" flow, enabled when an email
-     provider is configured.
-- **Admin dashboard** at `/admin` — view every entry (including hidden/pending),
-  edit any field, move pins, change moderation status, and delete entries.
+- **Members edit their own entry** with a **secret edit link** — shown once on
+  submission. No email is required or collected for the flow; if a member loses
+  their link, an admin can mint a fresh one from the dashboard and share it.
+- **Admin dashboard** at `/admin` (linked from the map header) — view every
+  entry (including hidden/pending), edit any field, move pins, change moderation
+  status, copy a member's edit link, and delete entries.
+- **Bulk CSV import / export / edit** — import the sign-up sheet (columns are
+  auto-detected and locations geocoded to pins for review before import),
+  export the directory, and apply status/visibility/delete actions to many
+  members at once with select-all / select-none shortcuts.
+- **Demo data toggle** — sample pins are hidden by default and can be switched
+  on from the on-screen Debug panel for previewing the map.
 - **Security baked in** (see [Security](#security)).
 - **Optional moderation** — require admin approval before entries go public.
 
@@ -37,7 +43,7 @@ site runs under a strict Content-Security-Policy.
 
 ```
 Browser ─┬─► /api/*  ─► Cloudflare Worker (src/) ─► D1 (SQLite)
-         │                 └─► Nominatim (geocode proxy), Resend (optional email)
+         │                 └─► Nominatim (geocode proxy)
          └─► /*      ─► Cloudflare CDN ─► static assets (public/) incl. vendored Leaflet
 ```
 
@@ -54,7 +60,6 @@ well inside the free tier (see the scaling notes below).
 | `src/validate.ts`             | Input validation + contact normalisation        |
 | `src/db.ts`                   | D1 queries (parameterised)                      |
 | `src/geocode.ts`              | Nominatim forward-geocoding proxy               |
-| `src/email.ts`                | Optional Resend email sender                    |
 | `public/`                     | Front-end (map, form, edit, admin) + vendored Leaflet |
 | `public/_headers`             | Security/cache headers for CDN-served static assets |
 | `migrations/`                 | D1 schema migrations                            |
@@ -125,7 +130,7 @@ which would make a separate `wrangler d1 migrations apply --remote` step fail.
 The schema statements are all idempotent (`CREATE … IF NOT EXISTS`), so this is
 safe to run on every cold start.
 
-After the first deploy, set any **optional** secrets you want (email, Turnstile)
+After the first deploy, set any **optional** secrets you want (e.g. Turnstile)
 from the table below — in the dashboard under **Workers & Pages → your Worker →
 Settings → Variables and Secrets**, or with `wrangler secret put <NAME>`.
 
@@ -164,13 +169,13 @@ is only needed when bumping the Leaflet version).
 
 | Setting | Type | Effect |
 | ------- | ---- | ------ |
-| `APP_NAME` | var | Title shown in the UI and emails. |
-| `PUBLIC_BASE_URL` | var | Absolute origin used to build edit links in emails (e.g. `https://members.example.com`). Falls back to the request host. |
+| `APP_NAME` | var | Title shown in the UI. |
+| `COMMUNITY_NAME` | var | Community name used for branding (default `Generalist World`). |
+| `COMMUNITY_URL` | var | Community website linked from the UI (default `https://generalist.world/`). |
+| `PUBLIC_BASE_URL` | var | Absolute origin used to build edit links (e.g. `https://members.example.com`). Falls back to the request host. |
 | `MODERATION_ENABLED` | var | `"true"` holds new entries as **pending** until an admin publishes them. |
 | `TURNSTILE_SITE_KEY` | var | Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. |
 | `TURNSTILE_SECRET` | secret | Turnstile secret — the Worker verifies the token. The CSP already allows `challenges.cloudflare.com`. |
-| `RESEND_API_KEY` | secret | Enables email (edit-link + magic-link) via [Resend](https://resend.com). |
-| `EMAIL_FROM` | secret | Verified sender address, e.g. `Member Map <map@example.com>`. |
 
 Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
 
@@ -182,13 +187,10 @@ Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
   (`/edit?id=…#k=<token>`). The raw token is **never stored** — only its
   SHA-256 hash — and the link fragment (`#k=`) is never sent to the server in
   normal navigation, so it stays out of logs.
-- If email is configured and the member supplied an address, the same link is
-  emailed to them.
-- The **"email me my edit link"** flow (`/edit` with no link) issues a
-  single-use, 30-minute **magic link**. Clicking it grants a short-lived,
-  member-scoped signed session that authorises editing that one entry. To avoid
-  leaking who's in the directory, the request endpoint always returns the same
-  generic response.
+- **Lost link?** There is no email workflow. An admin opens the dashboard,
+  finds the member, and clicks **Copy link** (or **Generate** in the edit
+  dialog) to mint a fresh edit link to share. Generating a new link invalidates
+  the previous one, since only the hash is ever stored.
 
 Members may untick the public-consent box to **hide** their entry without
 deleting it; re-ticking restores it.
@@ -205,8 +207,7 @@ deleting it; re-ticking restores it.
 | SQL injection | All D1 queries use bound parameters / prepared statements. |
 | CSRF | State-changing requests require a same-origin `Origin`/`Referer`; admin cookie is `HttpOnly; Secure; SameSite=Strict`. |
 | Auth (members) | Unguessable 256-bit edit token; only its **hash** is stored; constant-time comparison. |
-| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. |
-| Account enumeration | The edit-link-by-email endpoint returns an identical response whether or not the email exists. |
+| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. Admin-only endpoints (bulk edit, CSV import, edit-link minting) require a valid admin session **and** a same-origin request. |
 | Spam / abuse | Hidden **honeypot** field, per-IP **rate limiting** (5/hour), optional **Turnstile**. IPs are stored only as a salted hash for rate limiting. |
 | Privacy | Opt-in only; email is never exposed in the public API; internal ids are never exposed (opaque `public_id` used everywhere). |
 | Headers | `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`. |
@@ -227,7 +228,7 @@ deleting it; re-ticking restores it.
 `members` (one row per submission): opaque `public_id`, name, optional private
 `email`, `location_name` + `lat`/`lng`, `bio`, `contact_label`/`contact_url`,
 `consent_public`, moderation `status`, `edit_token_hash`, salted `ip_hash`, and
-timestamps. `magic_links` holds short-lived, single-use email tokens.
+timestamps.
 
 Public visibility requires `status = 'published'` **and** `consent_public = 1`.
 

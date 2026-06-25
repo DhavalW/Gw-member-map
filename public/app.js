@@ -1,13 +1,28 @@
-import { api, configureLeafletIcons, contactNode, debounce, el, getConfig, installDebugOverlay } from "/common.js";
-import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — remove this line and the spread in loadMembers() to clean up
+import { api, configureLeafletIcons, contactNode, debounce, debugToggle, el, getConfig, installDebugOverlay } from "/common.js";
+import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — sample pins, hidden unless toggled on in the debug panel
 
 const L = window.L;
 configureLeafletIcons(L);
-installDebugOverlay(); // on-screen logs for devices without a dev console
+const overlay = installDebugOverlay(); // on-screen logs for devices without a dev console
+
+const DEMO_KEY = "gw-show-demo-data";
+let showDemo = localStorage.getItem(DEMO_KEY) === "1"; // off by default
 
 let CONFIG = {};
 let MEMBERS = [];
 let turnstileToken = "";
+
+// Debug-panel switch to overlay sample/demo pins. Off by default; persists.
+overlay.addControl(
+  debugToggle({
+    label: "Show demo data",
+    key: DEMO_KEY,
+    onChange: (on) => {
+      showDemo = on;
+      loadMembers();
+    },
+  }),
+);
 
 const state = {
   map: null,
@@ -41,8 +56,13 @@ init().catch((err) => console.error("init failed", err));
 
 async function init() {
   CONFIG = await getConfig();
-  document.title = CONFIG.appName || "Member Map";
-  document.getElementById("app-name").textContent = CONFIG.appName || "Member Map";
+  document.title = CONFIG.appName || "Generalist World Member Map";
+  document.getElementById("app-name").textContent = CONFIG.appName || "Generalist World Member Map";
+  const community = document.getElementById("community-link");
+  if (community && CONFIG.communityUrl) {
+    community.href = CONFIG.communityUrl;
+    community.textContent = CONFIG.communityName || "Generalist World";
+  }
 
   initMap();
   await loadMembers();
@@ -66,10 +86,8 @@ function initMap() {
 async function loadMembers() {
   const { data } = await api("/api/members");
   const real = Array.isArray(data.members) ? data.members : [];
-  MEMBERS = [
-    ...real,
-    ...MOCK_MEMBERS, // DEMO — remove this line to clean up
-  ];
+  // Demo pins are appended only when the debug-panel toggle is on.
+  MEMBERS = showDemo ? [...real, ...MOCK_MEMBERS] : real;
   renderMembers(MEMBERS);
 }
 
@@ -392,8 +410,6 @@ function showSuccess(data) {
   msg.textContent = data.moderated
     ? "Thanks! Your entry will appear once an admin approves it."
     : "Thanks for joining — your pin is now on the map.";
-  document.getElementById("email-note").style.display =
-    document.getElementById("email").value.trim() && CONFIG.emailConfigured ? "block" : "none";
   dialog.showModal();
 }
 

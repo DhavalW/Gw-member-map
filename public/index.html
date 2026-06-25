@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Member Map</title>
-  <meta name="description" content="An opt-in directory of members shown on a world map." />
+  <title>Generalist World Member Map</title>
+  <meta name="description" content="An opt-in directory of Generalist World members shown on a world map." />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/vendor/MarkerCluster.css" />
   <link rel="stylesheet" href="/vendor/MarkerCluster.Default.css" />
@@ -13,9 +13,13 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <h1 id="app-name">Member Map</h1>
+      <div class="brand">
+        <h1 id="app-name">Generalist World Member Map</h1>
+        <a id="community-link" class="brand-link" href="https://generalist.world/" target="_blank" rel="noopener noreferrer">Generalist World</a>
+      </div>
       <span class="count" id="member-count" aria-live="polite"></span>
       <span class="spacer"></span>
+      <a class="btn small ghost" href="/admin">Admin</a>
       <a class="btn small" href="/edit">Edit my entry</a>
       <button class="btn primary" id="open-form">Add me to the map</button>
     </header>
@@ -78,7 +82,7 @@
         <div class="field" id="f-email">
           <label for="email">Email <span class="muted">(optional, private)</span></label>
           <input type="email" id="email" name="email" maxlength="254" autocomplete="email" />
-          <div class="hint">Never shown publicly. Used only to email you your edit link.</div>
+          <div class="hint">Never shown publicly. Kept only so an admin can help you find your entry.</div>
           <div class="err" data-err></div>
         </div>
 
@@ -121,7 +125,7 @@
         <input type="text" id="edit-link" readonly />
         <button type="button" class="btn" id="copy-link">Copy</button>
       </div>
-      <p class="muted" id="email-note" style="display:none">We’ve also emailed this link to you.</p>
+      <p class="muted">Lost it later? An admin can always generate a new one for you.</p>
     </div>
     <div class="dialog-foot">
       <a class="btn" id="goto-edit" href="#">Edit now</a>

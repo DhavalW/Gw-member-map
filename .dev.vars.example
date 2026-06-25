@@ -20,8 +20,3 @@ SESSION_SECRET=""
 # Cloudflare Turnstile secret (anti-spam). Pair with the TURNSTILE_SITE_KEY
 # var in wrangler.json.
 # TURNSTILE_SECRET=""
-
-# Resend API key — enables edit-link / magic-link emails.
-# RESEND_API_KEY=""
-# Verified sender address, e.g. "Member Map <map@example.com>".
-# EMAIL_FROM=""
