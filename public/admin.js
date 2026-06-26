@@ -81,6 +81,7 @@ async function loadDashboard() {
     b.addEventListener("click", () => onBulk(b.dataset.bulk)));
   wireEditDialog();
   wireImport();
+  wireMerge();
 }
 
 async function onLogout() {
@@ -185,6 +186,15 @@ function syncSelectionUi() {
   bar.style.display = selected.size ? "flex" : "none";
   document.getElementById("bulk-count").textContent =
     `${selected.size} selected`;
+
+  // Merge needs at least two records to combine.
+  const mergeBtn = document.getElementById("bulk-merge");
+  if (mergeBtn) {
+    mergeBtn.disabled = selected.size < 2;
+    mergeBtn.title = selected.size < 2
+      ? "Select two or more records to merge"
+      : "Combine the selected records into one";
+  }
 
   // Keep row highlight + checkbox state in sync.
   document.querySelectorAll("#admin-rows tr").forEach((tr, i) => {
@@ -694,4 +704,153 @@ async function confirmImport() {
     `Imported ${data.imported} member${data.imported === 1 ? "" : "s"}` +
     (pendingCount ? `, ${pendingCount} held as pending (no location yet — send those members their edit link)` : "") +
     (skipped ? `; skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : "") + ".");
+}
+
+// --- Merge (de-duplication) ----------------------------------------------
+// Combine several records into one. The admin picks which record to keep (it
+// retains its public id + edit link) and, per field, which record's value to
+// use. The other selected records are deleted server-side.
+const MERGE_FIELDS = [
+  { key: "name", label: "Name", get: (m) => m.name || "" },
+  { key: "location", label: "Location", get: (m) => m.location || "" },
+  { key: "bio", label: "Bio", get: (m) => m.bio || "" },
+  { key: "contact", label: "Contact", get: (m) => m.contactLabel || "" },
+  { key: "email", label: "Email", get: (m) => m.email || "" },
+  { key: "status", label: "Status", get: (m) => m.status || "" },
+  { key: "consent", label: "On map (opted in)", get: (m) => (m.consentPublic ? "Yes" : "No") },
+];
+
+const mergeState = { records: [], primaryId: null, choices: {}, touched: new Set() };
+
+function wireMerge() {
+  document.getElementById("bulk-merge").addEventListener("click", openMerge);
+  const dialog = document.getElementById("merge-dialog");
+  document.getElementById("close-merge").addEventListener("click", () => dialog.close());
+  document.getElementById("merge-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("merge-confirm").addEventListener("click", confirmMerge);
+}
+
+const mergeRecById = (id) => mergeState.records.find((m) => m.id === id);
+
+function mergePreview(text) {
+  const t = String(text == null ? "" : text);
+  if (!t) return "—";
+  return t.length > 80 ? t.slice(0, 80) + "…" : t;
+}
+
+function openMerge() {
+  const records = MEMBERS.filter((m) => selected.has(m.id));
+  if (records.length < 2) {
+    flash("dash-error", "Select two or more records to merge.");
+    return;
+  }
+  mergeState.records = records;
+  mergeState.primaryId = records[0].id;
+  mergeState.touched = new Set();
+  mergeState.choices = {};
+  for (const f of MERGE_FIELDS) mergeState.choices[f.key] = records[0].id;
+  document.getElementById("merge-error").style.display = "none";
+  renderMerge();
+  document.getElementById("merge-dialog").showModal();
+}
+
+function renderMerge() {
+  const wrap = document.getElementById("merge-fields");
+  wrap.replaceChildren();
+
+  // "Record to keep": which row survives (keeps its id + edit link). Changing
+  // it re-defaults every field the admin hasn't manually overridden.
+  const keepGroup = el("div", { class: "merge-field" }, [
+    el("div", { class: "merge-flabel", text: "Record to keep" }),
+  ]);
+  for (const m of mergeState.records) {
+    const id = `keep-${m.id}`;
+    const radio = el("input", { type: "radio", name: "merge-keep", id });
+    radio.checked = mergeState.primaryId === m.id;
+    radio.addEventListener("change", () => {
+      mergeState.primaryId = m.id;
+      for (const f of MERGE_FIELDS) {
+        if (!mergeState.touched.has(f.key)) mergeState.choices[f.key] = m.id;
+      }
+      renderMerge();
+    });
+    keepGroup.append(el("label", { class: "merge-opt keep-opt", for: id }, [
+      radio,
+      el("span", { class: "merge-opt-val", text: `${m.name || "—"} · ${m.location || "no location"}` }),
+    ]));
+  }
+  wrap.append(keepGroup);
+
+  for (const f of MERGE_FIELDS) {
+    const group = el("div", { class: "merge-field" }, [
+      el("div", { class: "merge-flabel", text: f.label }),
+    ]);
+    for (const m of mergeState.records) {
+      const id = `m-${f.key}-${m.id}`;
+      const radio = el("input", { type: "radio", name: `merge-${f.key}`, id });
+      radio.checked = mergeState.choices[f.key] === m.id;
+      radio.addEventListener("change", () => {
+        mergeState.choices[f.key] = m.id;
+        mergeState.touched.add(f.key);
+      });
+      group.append(el("label", { class: "merge-opt", for: id }, [
+        radio,
+        el("span", { class: "merge-opt-val", text: mergePreview(f.get(m)) }),
+        el("span", { class: "merge-opt-src muted", text: mergeState.primaryId === m.id ? "kept record" : (m.name || "—") }),
+      ]));
+    }
+    wrap.append(group);
+  }
+  updateMergeSummary();
+}
+
+function updateMergeSummary() {
+  const n = mergeState.records.length;
+  const keep = mergeRecById(mergeState.primaryId);
+  document.getElementById("merge-summary").textContent =
+    `Keep “${keep ? keep.name || "—" : "—"}”, delete ${n - 1} other${n - 1 === 1 ? "" : "s"}.`;
+}
+
+async function confirmMerge() {
+  const keep = mergeRecById(mergeState.primaryId);
+  if (!keep) return;
+  const c = mergeState.choices;
+  const loc = mergeRecById(c.location) || keep;
+  const fields = {
+    display_name: (mergeRecById(c.name) || keep).name || "",
+    location_name: loc.location || "",
+    lat: loc.lat,
+    lng: loc.lng,
+    bio: (mergeRecById(c.bio) || keep).bio || "",
+    contact: (mergeRecById(c.contact) || keep).contactLabel || "",
+    email: (mergeRecById(c.email) || keep).email || "",
+    status: (mergeRecById(c.status) || keep).status,
+    consent_public: !!(mergeRecById(c.consent) || keep).consentPublic,
+  };
+  const mergeIds = mergeState.records.map((m) => m.id);
+  const others = mergeIds.length - 1;
+  if (!confirm(
+    `Merge ${mergeState.records.length} records into “${fields.display_name || "—"}”? ` +
+    `This permanently deletes ${others} other record${others === 1 ? "" : "s"} and cannot be undone.`,
+  )) return;
+
+  const btn = document.getElementById("merge-confirm");
+  btn.disabled = true;
+  btn.textContent = "Merging…";
+  const { ok, data } = await api("/api/admin/merge", {
+    method: "POST",
+    body: { primaryId: mergeState.primaryId, mergeIds, fields },
+  });
+  btn.disabled = false;
+  btn.textContent = "Merge records";
+  if (!ok) {
+    const box = document.getElementById("merge-error");
+    box.textContent = data.error || "Merge failed.";
+    box.style.display = "block";
+    return;
+  }
+  document.getElementById("merge-dialog").close();
+  selected.clear();
+  await refresh();
+  flash("dash-ok", `Merged ${(data.merged || others) + 1} records into one.`);
 }

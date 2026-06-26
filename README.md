@@ -27,15 +27,21 @@ site runs under a strict Content-Security-Policy.
   their link, an admin can mint a fresh one from the dashboard and share it.
 - **Admin dashboard** at `/admin` (linked from the map header) — view every
   entry (including hidden/pending), edit any field, move pins, change moderation
-  status, copy a member's edit link, and delete entries.
+  status, copy a member's edit link, **merge duplicate records**, and delete
+  entries.
+- **Moderation by default** — every member submission is held as **pending**
+  and never shown publicly until an admin publishes it. Members can never
+  publish their own entry.
+- **Merge / de-duplicate** — select two or more records in the admin dashboard
+  and merge them into one, choosing per-field which value to keep. The kept
+  record retains its edit link; the others are deleted.
 - **Bulk CSV import / export / edit** — import the sign-up sheet (columns are
   auto-detected and locations geocoded to pins for review before import),
-  export the directory, and apply status/visibility/delete actions to many
+  export the directory, and apply status/visibility/merge/delete actions to many
   members at once with select-all / select-none shortcuts.
 - **Demo data toggle** — sample pins are hidden by default and can be switched
   on from the on-screen Debug panel for previewing the map.
 - **Security baked in** (see [Security](#security)).
-- **Optional moderation** — require admin approval before entries go public.
 
 ---
 
@@ -173,7 +179,7 @@ is only needed when bumping the Leaflet version).
 | `COMMUNITY_NAME` | var | Community name used for branding (default `Generalist World`). |
 | `COMMUNITY_URL` | var | Community website linked from the UI (default `https://generalist.world/`). |
 | `PUBLIC_BASE_URL` | var | Absolute origin used to build edit links (e.g. `https://members.example.com`). Falls back to the request host. |
-| `MODERATION_ENABLED` | var | `"true"` holds new entries as **pending** until an admin publishes them. |
+| `MODERATION_ENABLED` | var | **Deprecated / no longer required.** Moderation is now always on: every member submission is held as **pending** until an admin publishes it, regardless of this value. |
 | `TURNSTILE_SITE_KEY` | var | Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. |
 | `TURNSTILE_SECRET` | secret | Turnstile secret — the Worker verifies the token. The CSP already allows `challenges.cloudflare.com`. |
 
@@ -206,8 +212,9 @@ deleting it; re-ticking restores it.
 | Clickjacking | `X-Frame-Options: DENY` + `frame-ancestors 'none'`. |
 | SQL injection | All D1 queries use bound parameters / prepared statements. |
 | CSRF | State-changing requests require a same-origin `Origin`/`Referer`; admin cookie is `HttpOnly; Secure; SameSite=Strict`. |
-| Auth (members) | Unguessable 256-bit edit token; only its **hash** is stored; constant-time comparison. |
-| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. Admin-only endpoints (bulk edit, CSV import, edit-link minting) require a valid admin session **and** a same-origin request. |
+| Auth (members) | Unguessable 256-bit edit token; only its **hash** is stored; constant-time comparison. The token is accepted **only** via the `X-Edit-Token` header (never a query string), so it can't leak through logs, browser history or the `Referer` header. Members can edit their own details and toggle their public opt-in, but can **never** change moderation status. |
+| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. Admin-only endpoints (bulk edit, CSV import, edit-link minting, record merge) require a valid admin session **and** a same-origin request. |
+| Moderation | New entries default to `pending` (enforced server-side and as the DB column default); only an admin can publish. Public visibility requires `status = 'published'` **and** `consent_public = 1`. |
 | Spam / abuse | Hidden **honeypot** field, per-IP **rate limiting** (5/hour), optional **Turnstile**. IPs are stored only as a salted hash for rate limiting. |
 | Privacy | Opt-in only; email is never exposed in the public API; internal ids are never exposed (opaque `public_id` used everywhere). |
 | Headers | `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`. |

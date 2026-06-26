@@ -241,7 +241,9 @@ table.admin th { color: var(--muted); font-weight: 600; }
    panels/notices on load. */
 #login-view { max-width: 420px; }
 #login-view, #not-configured, #dash-view, #admin-empty,
-#dash-ok, #dash-error, #login-error, #import-error, #admin-edit-error { display: none; }
+#dash-ok, #dash-error, #login-error, #import-error, #admin-edit-error,
+#merge-error { display: none; }
+#bulk-merge:disabled { opacity: .5; }
 .bulk-count { font-weight: 700; color: var(--brand); }
 .bulkbar .spacer { flex: 1 1 auto; }
 
@@ -273,6 +275,26 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .import-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .pin-ok { color: var(--ok); font-size: 12px; }
 .pin-warn { color: #b54708; font-size: 12px; }
+
+/* Merge dialog ------------------------------------------------------------ */
+#merge-dialog { width: min(640px, 96vw); }
+.merge-fields { display: flex; flex-direction: column; gap: 14px; }
+.merge-field {
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fafbfc;
+}
+.merge-field .merge-flabel {
+  font-weight: 600; font-size: 13px; color: var(--muted); margin-bottom: 6px;
+}
+.merge-opt {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px;
+  cursor: pointer; font-weight: 400;
+}
+.merge-opt:hover { background: #f0f5ff; }
+.merge-opt input { width: 16px; height: 16px; flex: 0 0 auto; cursor: pointer; }
+.merge-opt-val { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.merge-opt-src { flex: 0 0 auto; font-size: 12px; }
+.keep-opt .merge-opt-val { font-weight: 600; }
+.merge-summary { font-size: 13px; margin-right: auto; }
 
 @media (max-width: 720px) {
   aside.sidebar { display: none; }

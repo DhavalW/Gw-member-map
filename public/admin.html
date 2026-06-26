@@ -79,6 +79,7 @@
         <button class="btn small" data-bulk="hide">Hide</button>
         <button class="btn small" data-bulk="consent_on">Show on map</button>
         <button class="btn small" data-bulk="consent_off">Remove from map</button>
+        <button class="btn small" id="bulk-merge" title="Combine the selected records into one">Merge…</button>
         <button class="btn small" id="bulk-export">Export selected</button>
         <button class="btn small danger" data-bulk="delete">Delete</button>
         <button class="btn small ghost" id="bulk-clear">Clear</button>
@@ -212,6 +213,29 @@
       <span class="spacer" style="flex:1"></span>
       <button type="button" class="btn" id="import-cancel">Cancel</button>
       <button type="button" class="btn primary" id="import-confirm" disabled>Import selected</button>
+    </div>
+  </dialog>
+
+  <!-- Merge (de-duplicate) dialog -->
+  <dialog id="merge-dialog" aria-labelledby="merge-title">
+    <div class="dialog-head">
+      <h2 id="merge-title">Merge records</h2><span class="spacer"></span>
+      <button type="button" class="icon-btn" id="close-merge" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="notice err" id="merge-error"></div>
+      <p class="muted">
+        Pick the record to <strong>keep</strong> and the value to use for each field.
+        The kept record keeps its edit link; the other selected records are
+        <strong>permanently deleted</strong> and their edit links stop working.
+      </p>
+      <div id="merge-fields" class="merge-fields"></div>
+    </div>
+    <div class="dialog-foot">
+      <span class="merge-summary muted" id="merge-summary"></span>
+      <span class="spacer" style="flex:1"></span>
+      <button type="button" class="btn" id="merge-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="merge-confirm">Merge records</button>
     </div>
   </dialog>
 
