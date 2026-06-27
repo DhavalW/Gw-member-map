@@ -56,12 +56,13 @@ init().catch((err) => console.error("init failed", err));
 
 async function init() {
   CONFIG = await getConfig();
-  document.title = CONFIG.appName || "Generalist World Member Map";
-  document.getElementById("app-name").textContent = CONFIG.appName || "Generalist World Member Map";
+  const appName = CONFIG.appName || "Midhrami Studios Member Map";
+  document.title = appName;
+  document.getElementById("app-name").textContent = appName;
   const community = document.getElementById("community-link");
   if (community && CONFIG.communityUrl) {
     community.href = CONFIG.communityUrl;
-    community.textContent = CONFIG.communityName || "Generalist World";
+    community.textContent = CONFIG.communityName || "Midhrami Studios";
   }
 
   initMap();

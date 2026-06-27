@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Generalist World Member Map</title>
-  <meta name="description" content="An opt-in directory of Generalist World members shown on a world map." />
+  <title>Midhrami Studios Member Map</title>
+  <meta name="description" content="An opt-in community member directory shown on a world map." />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/vendor/MarkerCluster.css" />
   <link rel="stylesheet" href="/vendor/MarkerCluster.Default.css" />
@@ -14,8 +14,8 @@
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <h1 id="app-name">Generalist World Member Map</h1>
-        <a id="community-link" class="brand-link" href="https://generalist.world/" target="_blank" rel="noopener noreferrer">Generalist World</a>
+        <h1 id="app-name">Midhrami Studios Member Map</h1>
+        <a id="community-link" class="brand-link" href="https://midhrami.com" target="_blank" rel="noopener noreferrer">Midhrami Studios</a>
       </div>
       <span class="count" id="member-count" aria-live="polite"></span>
       <span class="spacer"></span>
@@ -27,7 +27,7 @@
     <div class="layout">
       <aside class="sidebar">
         <div class="search">
-          <div class="field" style="margin:0">
+          <div class="field">
             <label for="filter" class="sr-only">Search members</label>
             <input type="text" id="filter" placeholder="Search by name or location…" autocomplete="off" />
           </div>
@@ -47,7 +47,7 @@
         <button type="button" class="icon-btn" id="close-form" aria-label="Close">&times;</button>
       </div>
       <div class="dialog-body">
-        <div class="notice err" id="form-error" style="display:none"></div>
+        <div class="notice err hidden" id="form-error"></div>
 
         <div class="field" id="f-display_name">
           <label for="display_name">Name <span class="muted">(required)</span></label>
@@ -101,7 +101,7 @@
             <strong>publicly</strong> on this map. I can edit or remove it at any time.
           </label>
         </div>
-        <div class="err" id="consent-err" style="color:var(--danger);font-size:13px;display:none">
+        <div class="err" id="consent-err">
           You must opt in to be shown publicly.
         </div>
       </div>

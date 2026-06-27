@@ -304,6 +304,85 @@ function placeholders(n: number): string {
   return new Array(n).fill("?").join(",");
 }
 
+// ---- Runtime settings (dashboard-configurable branding + integrations) ----
+
+/** Read every saved setting override into a `key -> value` map. */
+export async function loadSettings(env: Env): Promise<Record<string, string>> {
+  const { results } = await env.DB.prepare(
+    `SELECT key, value FROM settings`,
+  ).all<{ key: string; value: string }>();
+  const out: Record<string, string> = {};
+  for (const r of results) out[r.key] = r.value;
+  return out;
+}
+
+/**
+ * Apply a batch of setting changes atomically: upsert each `{key, value}` and
+ * delete each key in `deletes` (reverting it to the env/default).
+ */
+export async function upsertSettings(
+  env: Env,
+  upserts: { key: string; value: string }[],
+  deletes: string[] = [],
+): Promise<void> {
+  const now = Date.now();
+  const stmts = [
+    ...upserts.map((u) =>
+      env.DB.prepare(
+        `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      ).bind(u.key, u.value, now),
+    ),
+    ...deletes.map((k) => env.DB.prepare(`DELETE FROM settings WHERE key = ?`).bind(k)),
+  ];
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+// ---- Admin login throttling (brute-force protection) ----
+
+export interface LoginAttempt {
+  ip_hash: string;
+  fail_count: number;
+  first_fail_at: number;
+  locked_until: number;
+  updated_at: number;
+}
+
+export async function getLoginAttempt(
+  env: Env,
+  ipHash: string,
+): Promise<LoginAttempt | null> {
+  return env.DB.prepare(`SELECT * FROM login_attempts WHERE ip_hash = ?`)
+    .bind(ipHash)
+    .first<LoginAttempt>();
+}
+
+/** Record (or update) the failure counters for an IP after a bad password. */
+export async function recordLoginFailure(
+  env: Env,
+  ipHash: string,
+  a: { fail_count: number; first_fail_at: number; locked_until: number },
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO login_attempts (ip_hash, fail_count, first_fail_at, locked_until, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(ip_hash) DO UPDATE SET
+         fail_count = excluded.fail_count,
+         first_fail_at = excluded.first_fail_at,
+         locked_until = excluded.locked_until,
+         updated_at = excluded.updated_at`,
+  )
+    .bind(ipHash, a.fail_count, a.first_fail_at, a.locked_until, Date.now())
+    .run();
+}
+
+/** Clear an IP's failure record (called on a successful sign-in). */
+export async function clearLoginAttempts(env: Env, ipHash: string): Promise<void> {
+  await env.DB.prepare(`DELETE FROM login_attempts WHERE ip_hash = ?`)
+    .bind(ipHash)
+    .run();
+}
+
 /** Set the moderation status on many members at once. */
 export async function bulkSetStatus(
   env: Env,

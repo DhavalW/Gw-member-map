@@ -7,6 +7,10 @@ export function el(tag, props = {}, children = []) {
     if (k === "class") node.className = v;
     else if (k === "text") node.textContent = v;
     else if (k === "html") throw new Error("Do not set raw HTML");
+    // Apply styles via the CSSOM, not a `style=` attribute: the strict CSP
+    // (`style-src 'self'`) blocks inline style attributes, but CSSOM writes are
+    // allowed. Routing `style` here keeps callers terse and CSP-clean.
+    else if (k === "style") node.style.cssText = v;
     else if (k.startsWith("on") && typeof v === "function") {
       node.addEventListener(k.slice(2), v);
     } else if (v !== null && v !== undefined) {

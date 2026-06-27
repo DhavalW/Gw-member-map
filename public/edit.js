@@ -14,6 +14,7 @@ init().catch((err) => console.error(err));
 
 async function init() {
   CONFIG = await getConfig();
+  applyBranding();
 
   if (!publicId || !credential) {
     showRequestView();
@@ -34,6 +35,14 @@ async function init() {
   }
 
   showEditView(data.member);
+}
+
+/** Apply the configurable community branding to this page. */
+function applyBranding() {
+  const name = CONFIG.communityName || "Midhrami Studios";
+  document.title = `Edit your entry — ${CONFIG.appName || name + " Member Map"}`;
+  const nameEl = document.getElementById("community-name");
+  if (nameEl) nameEl.textContent = name;
 }
 
 function show(id) {

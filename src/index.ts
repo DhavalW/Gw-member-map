@@ -19,13 +19,16 @@ import {
   bulkInsertMembers,
   bulkSetConsent,
   bulkSetStatus,
+  clearLoginAttempts,
   countRecentByIp,
   deleteMember,
   getByPublicId,
+  getLoginAttempt,
   insertMember,
   listAllMembers,
   listPublicMembers,
   mergeMembers,
+  recordLoginFailure,
   setEditTokenHash,
   toOwner,
   updateMember,
@@ -33,6 +36,12 @@ import {
 import type { InsertMember } from "./db";
 import { geocode } from "./geocode";
 import { ensureSchema } from "./schema";
+import {
+  getAdminSettings,
+  getPublicConfig,
+  getResolvedConfig,
+  saveSettings,
+} from "./settings";
 import { validateSubmission } from "./validate";
 
 const SUBMIT_LIMIT = 5; // submissions per IP per hour
@@ -41,6 +50,18 @@ const SUBMIT_WINDOW_MS = 60 * 60 * 1000;
 // size (D1 limits how many statements one batch() may contain).
 const IMPORT_MAX_ROWS = 5000;
 const IMPORT_CHUNK = 50;
+
+// --- Admin login brute-force protection ---
+// Failures are counted per IP within a rolling window; once the free-attempt
+// budget is spent each further failure locks that IP out for an exponentially
+// growing back-off (capped). A successful sign-in clears the record.
+const LOGIN_FREE_ATTEMPTS = 5; // failures allowed before any lockout
+const LOGIN_FAIL_WINDOW_MS = 60 * 60 * 1000; // counter resets after 1h idle
+const LOGIN_LOCK_BASE_MS = 30 * 1000; // first lockout: 30s
+const LOGIN_LOCK_MAX_MS = 60 * 60 * 1000; // capped at 1h
+const LOGIN_FAIL_DELAY_MS = 350; // constant delay added to every failed attempt
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -87,18 +108,10 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   const method = request.method.toUpperCase();
 
   // --- Public config (drives the front-end) ---
+  // Branding + integration values come from the dashboard-configurable
+  // settings (DB) with deployment vars / built-in defaults as fallbacks.
   if (pathname === "/api/config" && method === "GET") {
-    return json({
-      appName: env.APP_NAME || "Generalist World Member Map",
-      communityName: env.COMMUNITY_NAME || "Generalist World",
-      communityUrl: env.COMMUNITY_URL || "https://generalist.world/",
-      // Moderation is always on: every member submission is held as "pending"
-      // until an admin publishes it. The legacy MODERATION_ENABLED toggle no
-      // longer disables this (kept only for backwards compatibility).
-      moderationEnabled: true,
-      adminConfigured: isAdminConfigured(env),
-      turnstileSiteKey: env.TURNSTILE_SITE_KEY || "",
-    });
+    return json(await getPublicConfig(env));
   }
 
   // --- Geocoding proxy for the form's location search ---
@@ -165,6 +178,17 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
     const members = await listAllMembers(env);
     return json({ members });
+  }
+  // --- Admin: read / update dashboard-configurable settings ---
+  if (pathname === "/api/admin/settings") {
+    if (method === "GET") {
+      if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
+      return json({ settings: await getAdminSettings(env) });
+    }
+    if (method === "PUT") {
+      return handleAdminSaveSettings(request, env);
+    }
+    return json({ error: "Method not allowed" }, 405);
   }
   // --- Admin: mint a fresh, shareable edit link for one member ---
   const editLinkMatch = pathname.match(
@@ -251,12 +275,16 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
   }
 }
 
-async function verifyTurnstile(env: Env, token: unknown, ip: string | null): Promise<boolean> {
+async function verifyTurnstile(
+  secret: string,
+  token: unknown,
+  ip: string | null,
+): Promise<boolean> {
   // Only enforced when a secret is configured.
-  if (!env.TURNSTILE_SECRET) return true;
+  if (!secret) return true;
   if (typeof token !== "string" || !token) return false;
   const form = new FormData();
-  form.set("secret", env.TURNSTILE_SECRET);
+  form.set("secret", secret);
   form.set("response", token);
   if (ip) form.set("remoteip", ip);
   try {
@@ -271,8 +299,8 @@ async function verifyTurnstile(env: Env, token: unknown, ip: string | null): Pro
   }
 }
 
-function baseUrl(request: Request, env: Env): string {
-  if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL.replace(/\/$/, "");
+function baseUrl(request: Request, publicBaseUrl: string): string {
+  if (publicBaseUrl) return publicBaseUrl.replace(/\/$/, "");
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;
 }
@@ -288,8 +316,9 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, id: "skipped" }); // silently accept + drop
   }
 
+  const cfg = await getResolvedConfig(env);
   const ip = request.headers.get("CF-Connecting-IP");
-  if (!(await verifyTurnstile(env, body.turnstileToken, ip))) {
+  if (!(await verifyTurnstile(cfg.turnstileSecret, body.turnstileToken, ip))) {
     return json({ error: "Spam check failed. Please try again." }, 400);
   }
 
@@ -333,7 +362,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     ip_hash: ipHash,
   });
 
-  const editUrl = `${baseUrl(request, env)}/edit?id=${publicId}#k=${editToken}`;
+  const editUrl = `${baseUrl(request, cfg.publicBaseUrl)}/edit?id=${publicId}#k=${editToken}`;
 
   return json({
     ok: true,
@@ -445,8 +474,30 @@ async function handleAdminEditLink(
 
   const editToken = randomToken(32);
   await setEditTokenHash(env, publicId, await sha256Hex(editToken));
-  const editUrl = `${baseUrl(request, env)}/edit?id=${publicId}#k=${editToken}`;
+  const cfg = await getResolvedConfig(env);
+  const editUrl = `${baseUrl(request, cfg.publicBaseUrl)}/edit?id=${publicId}#k=${editToken}`;
   return json({ ok: true, editUrl });
+}
+
+/** Admin: validate and persist dashboard setting changes. */
+async function handleAdminSaveSettings(request: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+  if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
+
+  const body = await readJson(request);
+  const values =
+    body && typeof body.values === "object" && body.values !== null
+      ? (body.values as Record<string, unknown>)
+      : {};
+  const clear = Array.isArray(body?.clear)
+    ? body!.clear.filter((x): x is string => typeof x === "string")
+    : [];
+
+  const result = await saveSettings(env, values, clear);
+  if (!result.ok) {
+    return json({ error: "Validation failed", fields: result.errors }, 400);
+  }
+  return json({ ok: true, settings: await getAdminSettings(env) });
 }
 
 /** Admin: apply a status/consent/delete action across many members. */
@@ -634,6 +685,19 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
   if (!isAdminConfigured(env)) {
     return json({ error: "Admin is not configured on this deployment." }, 503);
   }
+
+  // Per-IP brute-force throttle. The IP is salted with the session secret and
+  // stored only as a hash. Without CF-Connecting-IP (e.g. local dev) all
+  // attempts share one bucket, which still limits guessing.
+  const ip = request.headers.get("CF-Connecting-IP");
+  const ipHash = await sha256Hex(`${env.SESSION_SECRET ?? "ip-salt"}:login:${ip ?? "noip"}`);
+  const now = Date.now();
+
+  const attempt = await getLoginAttempt(env, ipHash);
+  if (attempt && attempt.locked_until > now) {
+    return lockedOut(attempt.locked_until - now);
+  }
+
   const body = await readJson(request);
   const password = typeof body?.password === "string" ? body.password : "";
 
@@ -641,9 +705,34 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
   const a = await sha256Hex(password);
   const b = await sha256Hex(env.ADMIN_PASSWORD!);
   if (!timingSafeEqual(a, b)) {
+    // Slow automated guessing with a small fixed delay on every failure.
+    await sleep(LOGIN_FAIL_DELAY_MS);
+
+    // Reset the counter if the previous failures are older than the window.
+    const windowActive = attempt && now - attempt.first_fail_at < LOGIN_FAIL_WINDOW_MS;
+    const failCount = (windowActive ? attempt!.fail_count : 0) + 1;
+    const firstFailAt = windowActive ? attempt!.first_fail_at : now;
+
+    // Exponential back-off once the free-attempt budget is exhausted.
+    let lockedUntil = 0;
+    if (failCount > LOGIN_FREE_ATTEMPTS) {
+      const over = failCount - LOGIN_FREE_ATTEMPTS;
+      const dur = Math.min(LOGIN_LOCK_BASE_MS * 2 ** (over - 1), LOGIN_LOCK_MAX_MS);
+      lockedUntil = now + dur;
+    }
+
+    await recordLoginFailure(env, ipHash, {
+      fail_count: failCount,
+      first_fail_at: firstFailAt,
+      locked_until: lockedUntil,
+    });
+
+    if (lockedUntil > now) return lockedOut(lockedUntil - now);
     return json({ error: "Incorrect password." }, 401);
   }
 
+  // Success: clear the failure record and issue a session.
+  await clearLoginAttempts(env, ipHash);
   const token = await createAdminSession(env.SESSION_SECRET!);
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
@@ -653,4 +742,14 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
       "Cache-Control": "no-store",
     },
   });
+}
+
+/** 429 response for a locked-out login, with a `Retry-After` header (seconds). */
+function lockedOut(remainingMs: number): Response {
+  const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+  return json(
+    { error: "Too many failed attempts. Please wait and try again." },
+    429,
+    { "Retry-After": String(seconds) },
+  );
 }

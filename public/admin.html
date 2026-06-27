@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin — Generalist World Member Map</title>
+  <title>Admin — Midhrami Studios Member Map</title>
   <meta name="robots" content="noindex" />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/styles.css" />
@@ -12,18 +12,18 @@
   <div class="wrap admin-wrap">
     <div class="admin-top">
       <div>
-        <p style="margin:0"><a href="/">&larr; Back to the map</a></p>
-        <h1 style="margin:6px 0 0">Admin</h1>
-        <p class="muted" style="margin:2px 0 0">
-          <a id="community-link" href="https://generalist.world/" target="_blank" rel="noopener noreferrer">Generalist World</a>
+        <p><a href="/">&larr; Back to the map</a></p>
+        <h1>Admin</h1>
+        <p class="muted">
+          <a id="community-link" href="https://midhrami.com" target="_blank" rel="noopener noreferrer">Midhrami Studios</a>
           member directory
         </p>
       </div>
     </div>
 
     <!-- Login -->
-    <div class="card" id="login-view" style="display:none;max-width:420px">
-      <div class="notice err" id="login-error" style="display:none"></div>
+    <div class="card hidden" id="login-view">
+      <div class="notice err hidden" id="login-error"></div>
       <form id="login-form" novalidate>
         <div class="field">
           <label for="password">Admin password</label>
@@ -33,7 +33,7 @@
       </form>
     </div>
 
-    <div class="card" id="not-configured" style="display:none">
+    <div class="card hidden" id="not-configured">
       <p>Admin access isn’t configured on this deployment. Set the
         <code>ADMIN_PASSWORD</code> and <code>SESSION_SECRET</code> secrets, then redeploy.</p>
     </div>
@@ -41,7 +41,32 @@
     <div id="loading-view" class="card"><p class="muted">Loading…</p></div>
 
     <!-- Dashboard -->
-    <div id="dash-view" style="display:none">
+    <div id="dash-view" class="hidden">
+      <!-- Permanent best-practice reminder for the two deployment secrets. -->
+      <details class="security-note" id="security-note">
+        <summary>Keeping this site secure — admin password &amp; session secret</summary>
+        <div class="security-note-body">
+          <p>For safety, the <strong>admin password</strong> and <strong>session secret</strong>
+            are <strong>not editable here</strong>. They are stored as encrypted
+            <em>deployment secrets</em>, so they can never leak through this dashboard or the database.</p>
+          <p><strong>Where to set or change them:</strong> in the Cloudflare dashboard go to
+            <em>Workers &amp; Pages → your Worker → Settings → Variables and Secrets</em>, edit
+            <code>ADMIN_PASSWORD</code> or <code>SESSION_SECRET</code>, then <em>Save and deploy</em>.
+            (Technical users can instead run <code>wrangler secret put ADMIN_PASSWORD</code>.)</p>
+          <ul>
+            <li><strong>Admin password</strong> — use a long, unique passphrase from a password
+              manager. Change it if anyone who shouldn’t have it may have seen it, when someone with
+              access leaves, and every few months as good hygiene.</li>
+            <li><strong>Session secret</strong> — a long random value (e.g. generated with
+              <code>openssl rand -base64 32</code>). Set it once and leave it. Change it only if you
+              suspect sign-ins were compromised — doing so <strong>signs out all admins</strong>, who
+              then simply log in again.</li>
+            <li>Never put either value in code, screenshots, or chat messages.</li>
+          </ul>
+          <p class="muted">Step-by-step instructions are in the project README under “Security”.</p>
+        </div>
+      </details>
+
       <div class="admin-toolbar">
         <input type="text" id="admin-filter" placeholder="Filter by name, location, contact or email…" />
         <select id="filter-status" class="filter-select" aria-label="Filter by status">
@@ -64,14 +89,15 @@
         <span class="spacer"></span>
         <button class="btn small" id="import-btn">Import CSV</button>
         <button class="btn small" id="export-btn">Export CSV</button>
+        <button class="btn small" id="settings-btn">Settings</button>
         <button class="btn small" id="logout-btn">Sign out</button>
       </div>
 
-      <div class="notice ok" id="dash-ok" style="display:none"></div>
-      <div class="notice err" id="dash-error" style="display:none"></div>
+      <div class="notice ok hidden" id="dash-ok"></div>
+      <div class="notice err hidden" id="dash-error"></div>
 
-      <!-- Bulk action bar (shown when rows are selected) -->
-      <div class="bulkbar" id="bulkbar" style="display:none">
+      <!-- Bulk action bar (shown when rows are selected; .bulkbar starts hidden) -->
+      <div class="bulkbar" id="bulkbar">
         <span id="bulk-count" class="bulk-count"></span>
         <span class="spacer"></span>
         <button class="btn small" data-bulk="publish">Publish</button>
@@ -112,7 +138,7 @@
         <button type="button" class="icon-btn" id="close-edit" aria-label="Close">&times;</button>
       </div>
       <div class="dialog-body">
-        <div class="notice err" id="admin-edit-error" style="display:none"></div>
+        <div class="notice err hidden" id="admin-edit-error"></div>
 
         <div class="field" id="f-editlink">
           <label>Private edit link</label>
@@ -128,35 +154,35 @@
           <input type="text" id="a-name" maxlength="80" /><div class="err" data-err></div></div>
         <div class="field" id="f-location_name"><label for="a-loc">Location</label>
           <input type="text" id="a-loc" maxlength="120" /><div class="err" data-err></div></div>
-        <div style="display:flex;gap:10px">
-          <div class="field" style="flex:1" id="f-lat"><label for="a-lat">Latitude</label>
+        <div class="field-row">
+          <div class="field" id="f-lat"><label for="a-lat">Latitude</label>
             <input type="text" id="a-lat" /><div class="err" data-err></div></div>
-          <div class="field" style="flex:1" id="f-lng"><label for="a-lng">Longitude</label>
+          <div class="field" id="f-lng"><label for="a-lng">Longitude</label>
             <input type="text" id="a-lng" /><div class="err" data-err></div></div>
         </div>
         <div id="admin-pickmap" class="pickmap"></div>
-        <div class="field" id="f-bio" style="margin-top:12px"><label for="a-bio">Bio</label>
+        <div class="field" id="f-bio"><label for="a-bio">Bio</label>
           <textarea id="a-bio" maxlength="600"></textarea><div class="err" data-err></div></div>
         <div class="field" id="f-contact"><label for="a-contact">Contact</label>
           <input type="text" id="a-contact" maxlength="200" /><div class="err" data-err></div></div>
         <div class="field" id="f-email"><label for="a-email">Email</label>
           <input type="email" id="a-email" maxlength="254" /><div class="err" data-err></div></div>
-        <div style="display:flex;gap:16px;align-items:center">
-          <div class="field" style="margin:0"><label for="a-status">Status</label>
+        <div class="status-row">
+          <div class="field"><label for="a-status">Status</label>
             <select id="a-status">
               <option value="published">Published</option>
               <option value="pending">Pending</option>
               <option value="hidden">Hidden</option>
             </select>
           </div>
-          <div class="checkbox" style="margin-top:18px">
+          <div class="checkbox">
             <input type="checkbox" id="a-consent" /><label for="a-consent">Opted in (public)</label>
           </div>
         </div>
       </div>
       <div class="dialog-foot">
         <button type="button" class="btn danger" id="admin-delete">Delete</button>
-        <span class="spacer" style="flex:1"></span>
+        <span class="spacer"></span>
         <button type="button" class="btn" id="admin-cancel">Cancel</button>
         <button type="submit" class="btn primary" id="admin-save">Save</button>
       </div>
@@ -170,7 +196,7 @@
       <button type="button" class="icon-btn" id="close-import" aria-label="Close">&times;</button>
     </div>
     <div class="dialog-body">
-      <div class="notice err" id="import-error" style="display:none"></div>
+      <div class="notice err hidden" id="import-error"></div>
 
       <!-- Step 1: choose a file -->
       <div id="import-pick">
@@ -187,7 +213,7 @@
       </div>
 
       <!-- Step 2: review -->
-      <div id="import-review" style="display:none">
+      <div id="import-review" class="hidden">
         <div class="import-progress" id="import-progress">
           <div class="bar"><div class="bar-fill" id="geo-bar"></div></div>
           <span id="geo-status" class="muted"></span>
@@ -210,7 +236,7 @@
       </div>
     </div>
     <div class="dialog-foot">
-      <span class="spacer" style="flex:1"></span>
+      <span class="spacer"></span>
       <button type="button" class="btn" id="import-cancel">Cancel</button>
       <button type="button" class="btn primary" id="import-confirm" disabled>Import selected</button>
     </div>
@@ -233,10 +259,37 @@
     </div>
     <div class="dialog-foot">
       <span class="merge-summary muted" id="merge-summary"></span>
-      <span class="spacer" style="flex:1"></span>
+      <span class="spacer"></span>
       <button type="button" class="btn" id="merge-cancel">Cancel</button>
       <button type="button" class="btn primary" id="merge-confirm">Merge records</button>
     </div>
+  </dialog>
+
+  <!-- Settings dialog (branding + integrations) -->
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form" method="dialog" novalidate>
+      <div class="dialog-head">
+        <h2 id="settings-title">Site settings</h2><span class="spacer"></span>
+        <button type="button" class="icon-btn" id="close-settings" aria-label="Close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="notice err hidden" id="settings-error"></div>
+        <div class="notice ok hidden" id="settings-ok"></div>
+        <p class="muted">
+          Branding and integration options for this deployment. Changes take
+          effect immediately for everyone — no redeploy needed. The admin
+          password and session secret are kept as encrypted deployment secrets
+          and can’t be viewed or changed here — see the “Keeping this site
+          secure” note on the dashboard for how to set or rotate them.
+        </p>
+        <div id="settings-fields"></div>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="settings-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="settings-save">Save settings</button>
+      </div>
+    </form>
   </dialog>
 
   <script src="/vendor/leaflet.js"></script>
