@@ -13,8 +13,8 @@
     <h1>Edit your entry</h1>
 
     <!-- No / invalid credential view -->
-    <div class="card" id="request-view" style="display:none">
-      <div class="notice err" id="request-error" style="display:none"></div>
+    <div class="card hidden" id="request-view">
+      <div class="notice err hidden" id="request-error"></div>
       <p>To edit your entry, open the private edit link you saved when you joined.</p>
       <p class="muted">Lost your link? A <strong id="community-name">Midhrami Studios</strong> admin can generate a
         fresh one for you in seconds — just ask in the community and share the name and
@@ -26,11 +26,11 @@
     <div class="card" id="loading-view"><p class="muted">Loading your entry…</p></div>
 
     <!-- Edit form -->
-    <div class="card" id="edit-view" style="display:none">
+    <div class="card hidden" id="edit-view">
       <!-- Current visibility of this entry (pending / live / hidden). -->
       <div class="notice" id="status-banner"></div>
-      <div class="notice ok" id="edit-ok" style="display:none"></div>
-      <div class="notice err" id="edit-error" style="display:none"></div>
+      <div class="notice ok hidden" id="edit-ok"></div>
+      <div class="notice err hidden" id="edit-error"></div>
 
       <form id="edit-form" novalidate>
         <div class="field" id="f-display_name">
@@ -71,11 +71,11 @@
           <input type="checkbox" id="consent_public" />
           <label for="consent_public">Keep my entry shown publicly on the map.</label>
         </div>
-        <p class="muted" id="consent-note" style="display:none">
+        <p class="muted hidden" id="consent-note">
           Unticking this hides your pin without deleting your entry.
         </p>
 
-        <div style="display:flex;gap:10px;justify-content:space-between;margin-top:8px">
+        <div class="edit-actions">
           <button type="button" class="btn danger" id="delete-btn">Delete my entry</button>
           <button type="submit" class="btn primary" id="save-btn">Save changes</button>
         </div>

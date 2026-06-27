@@ -322,6 +322,41 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .keep-opt .merge-opt-val { font-weight: 600; }
 .merge-summary { font-size: 13px; margin-right: auto; }
 
+/* De-inlined styles -------------------------------------------------------
+   These replace static `style="…"` attributes in the HTML, which the strict
+   CSP (`style-src 'self'`) blocks. Elements toggled at runtime via
+   `node.style.display` still work: an inline display set by JS overrides the
+   `.hidden` class (which has no `!important`). */
+
+/* Initial-hidden state for elements the JS later shows/hides. */
+.hidden { display: none; }
+
+/* Admin header block (was inline margins). */
+.admin-top h1 { margin: 6px 0 0; }
+.admin-top p { margin: 0; }
+.admin-top p.muted { margin: 2px 0 0; }
+
+/* Sign-in card width (was inline max-width). */
+#login-view { max-width: 420px; }
+
+/* Map sign-up: search field flush with its container (was inline margin). */
+.search .field { margin: 0; }
+#consent-err { color: var(--danger); font-size: 13px; display: none; }
+
+/* Edit dialog: side-by-side lat/lng + status row (were inline flex). */
+.field-row { display: flex; gap: 10px; }
+.field-row .field { flex: 1; }
+#f-bio { margin-top: 12px; }
+.status-row { display: flex; gap: 16px; align-items: center; }
+.status-row .field { margin: 0; }
+.status-row .checkbox { margin-top: 18px; }
+
+/* Dialog footers push the action buttons to the right (was inline flex:1). */
+.dialog-foot .spacer { flex: 1; }
+
+/* Member edit page action row (was inline flex). */
+.edit-actions { display: flex; gap: 10px; justify-content: space-between; margin-top: 8px; }
+
 @media (max-width: 720px) {
   aside.sidebar { display: none; }
   header.topbar .brand h1 { font-size: 16px; }
