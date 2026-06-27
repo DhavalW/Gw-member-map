@@ -7,16 +7,23 @@
 #
 # `.dev.vars` itself is git-ignored; only this example is committed.
 
+# These two are the ONLY auth secrets — they are deliberately NOT editable from
+# the admin dashboard. Everything else (site name, community name + link,
+# Turnstile keys, public base URL) can be configured at runtime under
+# /admin → Settings, so a fresh deploy only strictly needs the two below.
+
 # Required ---------------------------------------------------------------
-# Password for the /admin dashboard sign-in.
+# Password for the /admin dashboard sign-in. Choose a strong, unique value;
+# repeated wrong guesses are rate-limited and locked out per IP.
 ADMIN_PASSWORD=""
 # Secret used to sign admin session cookies. Generate with:
 #   openssl rand -base64 32
 SESSION_SECRET=""
 
 # Optional ---------------------------------------------------------------
-# Uncomment and fill in only the features you want to enable.
+# Uncomment and fill in only the features you want to enable. All of these can
+# also be set later from the admin dashboard (Settings), which takes precedence.
 
 # Cloudflare Turnstile secret (anti-spam). Pair with the TURNSTILE_SITE_KEY
-# var in wrangler.json.
+# var in wrangler.json (or set both from the dashboard).
 # TURNSTILE_SECRET=""

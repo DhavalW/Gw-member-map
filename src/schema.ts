@@ -32,6 +32,21 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_members_public_status ON members (status, consent_public)`,
   `CREATE INDEX IF NOT EXISTS idx_members_email ON members (email)`,
   `CREATE INDEX IF NOT EXISTS idx_members_ip_created ON members (ip_hash, created_at)`,
+  // Runtime-configurable settings (branding + integrations) edited from the
+  // admin dashboard. See src/settings.ts.
+  `CREATE TABLE IF NOT EXISTS settings (
+     key        TEXT PRIMARY KEY,
+     value      TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+   )`,
+  // Per-IP admin login throttling, to slow password brute-force attacks.
+  `CREATE TABLE IF NOT EXISTS login_attempts (
+     ip_hash       TEXT PRIMARY KEY,
+     fail_count    INTEGER NOT NULL DEFAULT 0,
+     first_fail_at INTEGER NOT NULL,
+     locked_until  INTEGER NOT NULL DEFAULT 0,
+     updated_at    INTEGER NOT NULL
+   )`,
 ];
 
 let schemaReady: Promise<void> | null = null;

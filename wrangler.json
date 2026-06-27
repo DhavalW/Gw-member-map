@@ -19,9 +19,9 @@
     }
   ],
   "vars": {
-    "APP_NAME": "Generalist World Member Map",
-    "COMMUNITY_NAME": "Generalist World",
-    "COMMUNITY_URL": "https://generalist.world/",
+    "APP_NAME": "Midhrami Studios Member Map",
+    "COMMUNITY_NAME": "Midhrami Studios",
+    "COMMUNITY_URL": "https://midhrami.com",
     "PUBLIC_BASE_URL": "",
     "MODERATION_ENABLED": "false",
     "TURNSTILE_SITE_KEY": ""

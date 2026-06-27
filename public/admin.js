@@ -14,11 +14,7 @@ init().catch((err) => console.error(err));
 
 async function init() {
   CONFIG = await getConfig();
-  const community = document.getElementById("community-link");
-  if (community && CONFIG.communityUrl) {
-    community.href = CONFIG.communityUrl;
-    community.textContent = CONFIG.communityName || "Generalist World";
-  }
+  applyBranding();
   if (!CONFIG.adminConfigured) {
     show("not-configured");
     return;
@@ -28,6 +24,17 @@ async function init() {
     await loadDashboard();
   } else {
     showLogin();
+  }
+}
+
+/** Apply the (configurable) community branding to the page chrome. */
+function applyBranding() {
+  const name = CONFIG.communityName || "Midhrami Studios";
+  document.title = `Admin — ${CONFIG.appName || name + " Member Map"}`;
+  const community = document.getElementById("community-link");
+  if (community) {
+    if (CONFIG.communityUrl) community.href = CONFIG.communityUrl;
+    community.textContent = name;
   }
 }
 
@@ -82,6 +89,7 @@ async function loadDashboard() {
   wireEditDialog();
   wireImport();
   wireMerge();
+  wireSettings();
 }
 
 async function onLogout() {
@@ -433,7 +441,9 @@ function exportCsv(members) {
     PublicId: m.id,
   }));
   const stamp = new Date().toISOString().slice(0, 10);
-  downloadFile(`generalist-world-members-${stamp}.csv`, toCsv(EXPORT_COLUMNS, rows));
+  const slug = (CONFIG.communityName || "members")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "members";
+  downloadFile(`${slug}-members-${stamp}.csv`, toCsv(EXPORT_COLUMNS, rows));
 }
 
 function exportSelected() {
@@ -853,4 +863,149 @@ async function confirmMerge() {
   selected.clear();
   await refresh();
   flash("dash-ok", `Merged ${(data.merged || others) + 1} records into one.`);
+}
+
+// --- Site settings (branding + integrations) ------------------------------
+// Lets a community admin rebrand the map and tweak integrations from the
+// dashboard. Fields are built from the server's setting definitions so the
+// UI stays in sync with src/settings.ts. Secret values are never sent to the
+// browser — only whether one is set.
+let settingDefs = [];
+
+function wireSettings() {
+  document.getElementById("settings-btn").addEventListener("click", openSettings);
+  const dialog = document.getElementById("settings-dialog");
+  document.getElementById("close-settings").addEventListener("click", () => dialog.close());
+  document.getElementById("settings-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("settings-form").addEventListener("submit", onSaveSettings);
+}
+
+const SOURCE_LABEL = {
+  dashboard: "set here",
+  deployment: "from deployment config",
+  default: "using default",
+};
+
+async function openSettings() {
+  document.getElementById("settings-error").style.display = "none";
+  document.getElementById("settings-ok").style.display = "none";
+  const wrap = document.getElementById("settings-fields");
+  wrap.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
+  document.getElementById("settings-dialog").showModal();
+
+  const { ok, data } = await api("/api/admin/settings");
+  if (!ok) {
+    settingsError(data.error || "Could not load settings.");
+    wrap.replaceChildren();
+    return;
+  }
+  settingDefs = Array.isArray(data.settings) ? data.settings : [];
+  renderSettings();
+}
+
+function renderSettings() {
+  const wrap = document.getElementById("settings-fields");
+  wrap.replaceChildren();
+
+  for (const s of settingDefs) {
+    const labelText = s.label + (s.required ? "" : " (optional)");
+    const field = el("div", { class: "field", id: `f-set-${s.key}` }, [
+      el("label", { for: `set-${s.key}`, text: labelText }),
+    ]);
+
+    if (s.type === "secret") {
+      const input = el("input", {
+        type: "password",
+        id: `set-${s.key}`,
+        autocomplete: "new-password",
+        placeholder: s.isSet ? "•••••••• (set — leave blank to keep)" : "Not set",
+      });
+      field.append(input);
+      if (s.isSet) {
+        const clearWrap = el("label", { class: "checkbox set-clear" }, [
+          el("input", { type: "checkbox", id: `clear-${s.key}` }),
+          el("span", { text: "Clear (remove the saved value)" }),
+        ]);
+        field.append(clearWrap);
+      }
+    } else {
+      const input = el("input", {
+        type: s.type === "url" ? "url" : "text",
+        id: `set-${s.key}`,
+        value: s.value || "",
+        placeholder: s.type === "url" ? "https://…" : "",
+      });
+      field.append(input);
+    }
+
+    field.append(el("div", { class: "hint", text: s.description }));
+    field.append(el("div", {
+      class: "hint muted",
+      text: `Currently ${SOURCE_LABEL[s.source] || s.source}.`,
+    }));
+    field.append(el("div", { class: "err", "data-err": "" }));
+    wrap.append(field);
+  }
+}
+
+function settingsError(msg) {
+  const box = document.getElementById("settings-error");
+  box.textContent = msg;
+  box.style.display = "block";
+}
+
+function showSettingErrors(fields) {
+  document.querySelectorAll("#settings-fields .field.has-error")
+    .forEach((n) => n.classList.remove("has-error"));
+  for (const [key, msg] of Object.entries(fields || {})) {
+    const wrap = document.getElementById(`f-set-${key}`);
+    if (!wrap) continue;
+    wrap.classList.add("has-error");
+    const e = wrap.querySelector("[data-err]");
+    if (e) e.textContent = msg;
+  }
+}
+
+async function onSaveSettings(e) {
+  e.preventDefault();
+  document.getElementById("settings-error").style.display = "none";
+  document.getElementById("settings-ok").style.display = "none";
+  document.querySelectorAll("#settings-fields .field.has-error")
+    .forEach((n) => n.classList.remove("has-error"));
+
+  const values = {};
+  const clear = [];
+  for (const s of settingDefs) {
+    const input = document.getElementById(`set-${s.key}`);
+    if (!input) continue;
+    if (s.type === "secret") {
+      const clearBox = document.getElementById(`clear-${s.key}`);
+      if (clearBox && clearBox.checked) clear.push(s.key);
+      else if (input.value) values[s.key] = input.value;
+    } else {
+      values[s.key] = input.value;
+    }
+  }
+
+  const btn = document.getElementById("settings-save");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  const { ok, data } = await api("/api/admin/settings", { method: "PUT", body: { values, clear } });
+  btn.disabled = false;
+  btn.textContent = "Save settings";
+
+  if (!ok) {
+    if (data.fields) showSettingErrors(data.fields);
+    settingsError(data.error || "Could not save settings.");
+    return;
+  }
+
+  // Refresh the in-memory defs + re-apply branding live.
+  settingDefs = Array.isArray(data.settings) ? data.settings : settingDefs;
+  renderSettings();
+  CONFIG = await getConfig();
+  applyBranding();
+  const okBox = document.getElementById("settings-ok");
+  okBox.textContent = "Settings saved.";
+  okBox.style.display = "block";
 }

@@ -1,10 +1,15 @@
-# Generalist World Member Map
+# Community Member Map
 
-A **spatial member directory** on a world map for
-[**Generalist World**](https://generalist.world/), hosted entirely on
-Cloudflare. Members add themselves through a simple, opt-in form; each
-submission appears as a pin on a shared map. Members can edit or remove their
-own entry later, and admins can fix, import, export, or remove entries.
+A **spatial member directory** on a world map for **any community**, hosted
+entirely on Cloudflare. Members add themselves through a simple, opt-in form;
+each submission appears as a pin on a shared map. Members can edit or remove
+their own entry later, and admins can fix, import, export, or remove entries.
+
+It ships branded as [**Midhrami Studios**](https://midhrami.com) out of the
+box, but **every community can rebrand it from the admin dashboard** — the
+site name, community name, website link, and integration settings are all
+editable at runtime with no redeploy (see
+[Dashboard settings](#dashboard-configurable-settings)).
 
 Built on **Cloudflare Workers** (API + static hosting) and **Cloudflare D1**
 (SQLite). The map uses **Leaflet** with **OpenStreetMap** tiles — no API keys,
@@ -63,6 +68,7 @@ well inside the free tier (see the scaling notes below).
 | ----------------------------- | ----------------------------------------------- |
 | `src/index.ts`                | Worker entry + router                           |
 | `src/security.ts`             | CSP/headers, hashing, HMAC sessions, CSRF, escaping |
+| `src/settings.ts`             | Dashboard-configurable branding/integration settings |
 | `src/validate.ts`             | Input validation + contact normalisation        |
 | `src/db.ts`                   | D1 queries (parameterised)                      |
 | `src/geocode.ts`              | Nominatim forward-geocoding proxy               |
@@ -173,17 +179,40 @@ is only needed when bumping the Leaflet version).
 
 ### Optional configuration
 
+All of the settings below can be configured **from the admin dashboard** (see
+[Dashboard settings](#dashboard-configurable-settings)) — that's the
+recommended way, and it requires no redeploy. The matching deployment
+variables/secrets are still honoured as the initial value for a fresh deploy;
+a value saved from the dashboard always takes precedence.
+
 | Setting | Type | Effect |
 | ------- | ---- | ------ |
-| `APP_NAME` | var | Title shown in the UI. |
-| `COMMUNITY_NAME` | var | Community name used for branding (default `Generalist World`). |
-| `COMMUNITY_URL` | var | Community website linked from the UI (default `https://generalist.world/`). |
+| `APP_NAME` | var | Site title shown in the browser tab and as the map heading (default `Midhrami Studios Member Map`). |
+| `COMMUNITY_NAME` | var | Community name used for branding and the header link (default `Midhrami Studios`). |
+| `COMMUNITY_URL` | var | Community website linked from the UI (default `https://midhrami.com`). |
 | `PUBLIC_BASE_URL` | var | Absolute origin used to build edit links (e.g. `https://members.example.com`). Falls back to the request host. |
 | `MODERATION_ENABLED` | var | **Deprecated / no longer required.** Moderation is now always on: every member submission is held as **pending** until an admin publishes it, regardless of this value. |
 | `TURNSTILE_SITE_KEY` | var | Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. |
 | `TURNSTILE_SECRET` | secret | Turnstile secret — the Worker verifies the token. The CSP already allows `challenges.cloudflare.com`. |
 
 Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
+
+> The **admin password** (`ADMIN_PASSWORD`) and **session secret**
+> (`SESSION_SECRET`) are intentionally **not** editable from the dashboard —
+> they are authentication secrets and stay as encrypted deployment secrets.
+
+### Dashboard-configurable settings
+
+Sign in at `/admin` and open **Settings** to rebrand the map and manage
+integrations without redeploying. Each option shows an inline explanation and
+whether its current value comes from the dashboard, the deployment config, or
+the built-in default. Changes are stored in a `settings` table in D1 and take
+effect immediately for everyone.
+
+Configurable here: **Site title**, **Community name**, **Community website**,
+**Public base URL**, **Turnstile site key**, and **Turnstile secret**. The
+Turnstile secret is write-only — the dashboard shows only whether one is set
+and never echoes the value back.
 
 ---
 
@@ -213,7 +242,8 @@ deleting it; re-ticking restores it.
 | SQL injection | All D1 queries use bound parameters / prepared statements. |
 | CSRF | State-changing requests require a same-origin `Origin`/`Referer`; admin cookie is `HttpOnly; Secure; SameSite=Strict`. |
 | Auth (members) | Unguessable 256-bit edit token; only its **hash** is stored; constant-time comparison. The token is accepted **only** via the `X-Edit-Token` header (never a query string), so it can't leak through logs, browser history or the `Referer` header. Members can edit their own details and toggle their public opt-in, but can **never** change moderation status. |
-| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. Admin-only endpoints (bulk edit, CSV import, edit-link minting, record merge) require a valid admin session **and** a same-origin request. |
+| Auth (admins) | Password compared in constant time; session is an **HMAC-signed**, expiring cookie. Admin-only endpoints (bulk edit, CSV import, edit-link minting, record merge, settings) require a valid admin session **and** a same-origin request. |
+| Brute force | Admin sign-in is **rate-limited per IP**: after 5 failed attempts within an hour each further failure triggers an **exponential lockout** (30s, doubling, capped at 1h) returned as `429` with `Retry-After`; a constant delay is added to every failed attempt to slow automated guessing, and a successful sign-in resets the counter. IPs are stored only as a salted hash. |
 | Moderation | New entries default to `pending` (enforced server-side and as the DB column default); only an admin can publish. Public visibility requires `status = 'published'` **and** `consent_public = 1`. |
 | Spam / abuse | Hidden **honeypot** field, per-IP **rate limiting** (5/hour), optional **Turnstile**. IPs are stored only as a salted hash for rate limiting. |
 | Privacy | Opt-in only; email is never exposed in the public API; internal ids are never exposed (opaque `public_id` used everywhere). |
@@ -238,6 +268,12 @@ deleting it; re-ticking restores it.
 timestamps.
 
 Public visibility requires `status = 'published'` **and** `consent_public = 1`.
+
+`settings` (key/value): dashboard-configurable branding + integration overrides
+(see [Dashboard settings](#dashboard-configurable-settings)).
+
+`login_attempts` (one row per IP hash): failure counters + lockout time backing
+the admin sign-in brute-force protection.
 
 ---
 

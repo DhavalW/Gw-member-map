@@ -120,7 +120,8 @@ aside.sidebar {
 .field { margin-bottom: 14px; }
 .field label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
 .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.field input[type=text], .field input[type=email], .field textarea {
+.field input[type=text], .field input[type=email], .field input[type=url],
+.field input[type=password], .field textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line);
   border-radius: 10px; font: inherit; background: #fff; color: var(--ink);
 }
@@ -278,6 +279,13 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .import-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .pin-ok { color: var(--ok); font-size: 12px; }
 .pin-warn { color: #b54708; font-size: 12px; }
+
+/* Settings dialog --------------------------------------------------------- */
+#settings-dialog { width: min(560px, 96vw); }
+#settings-fields .field { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+#settings-fields .field:last-child { border-bottom: none; }
+.set-clear { margin-top: 8px; font-size: 13px; }
+.set-clear input { width: 16px; height: 16px; }
 
 /* Merge dialog ------------------------------------------------------------ */
 #merge-dialog { width: min(640px, 96vw); }

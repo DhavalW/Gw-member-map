@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin — Generalist World Member Map</title>
+  <title>Admin — Midhrami Studios Member Map</title>
   <meta name="robots" content="noindex" />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/styles.css" />
@@ -15,7 +15,7 @@
         <p style="margin:0"><a href="/">&larr; Back to the map</a></p>
         <h1 style="margin:6px 0 0">Admin</h1>
         <p class="muted" style="margin:2px 0 0">
-          <a id="community-link" href="https://generalist.world/" target="_blank" rel="noopener noreferrer">Generalist World</a>
+          <a id="community-link" href="https://midhrami.com" target="_blank" rel="noopener noreferrer">Midhrami Studios</a>
           member directory
         </p>
       </div>
@@ -64,6 +64,7 @@
         <span class="spacer"></span>
         <button class="btn small" id="import-btn">Import CSV</button>
         <button class="btn small" id="export-btn">Export CSV</button>
+        <button class="btn small" id="settings-btn">Settings</button>
         <button class="btn small" id="logout-btn">Sign out</button>
       </div>
 
@@ -237,6 +238,32 @@
       <button type="button" class="btn" id="merge-cancel">Cancel</button>
       <button type="button" class="btn primary" id="merge-confirm">Merge records</button>
     </div>
+  </dialog>
+
+  <!-- Settings dialog (branding + integrations) -->
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form" method="dialog" novalidate>
+      <div class="dialog-head">
+        <h2 id="settings-title">Site settings</h2><span class="spacer"></span>
+        <button type="button" class="icon-btn" id="close-settings" aria-label="Close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="notice err" id="settings-error" style="display:none"></div>
+        <div class="notice ok" id="settings-ok" style="display:none"></div>
+        <p class="muted">
+          Branding and integration options for this deployment. Changes take
+          effect immediately for everyone — no redeploy needed. The admin
+          password and session secret are kept as encrypted deployment secrets
+          and can’t be viewed or changed here.
+        </p>
+        <div id="settings-fields"></div>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer" style="flex:1"></span>
+        <button type="button" class="btn" id="settings-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="settings-save">Save settings</button>
+      </div>
+    </form>
   </dialog>
 
   <script src="/vendor/leaflet.js"></script>
