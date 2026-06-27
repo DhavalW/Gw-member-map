@@ -326,13 +326,44 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .import-help-body li { margin: 4px 0; }
 .import-help-body code { background: #eef1f5; padding: 1px 5px; border-radius: 5px; font: 12px ui-monospace, monospace; }
 
-/* Optional profile-photo zip picker, shown in the import review step. */
-.import-photos-bar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  background: #f5f9ff; border: 1px solid #cdddff; border-radius: 10px;
-  padding: 10px 12px; margin-bottom: 12px; font-size: 13px;
+/* Import wizard: step indicator + per-file rows -------------------------- */
+.wizard-steps {
+  display: flex; align-items: center; list-style: none; margin: 0;
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
 }
-.import-photos-bar #zip-status { flex: 1 1 100%; }
+.wizard-steps .wstep { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.wizard-steps .wstep + .wstep::before {
+  content: ""; width: 36px; height: 2px; background: var(--line); margin: 0 12px; display: inline-block;
+}
+.wizard-steps .wstep-num {
+  width: 24px; height: 24px; border-radius: 50%; background: #e3e7eb; color: #5c6670;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+}
+.wizard-steps .wstep.active { color: var(--ink); }
+.wizard-steps .wstep.active .wstep-num { background: var(--brand); color: #fff; }
+.wizard-steps .wstep.done .wstep-num { background: var(--ok); color: #fff; }
+
+.import-intro { margin-top: 0; }
+.import-filerow { margin-top: 16px; }
+.import-filerow-head { font-size: 13px; margin-bottom: 6px; }
+.import-filerow-head .req, .import-filerow-head .opt {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; margin-left: 6px;
+}
+.import-filerow-head .req { color: var(--danger); }
+.import-filerow-head .opt { color: var(--muted); }
+
+.filedrop.chosen { border-style: solid; border-color: var(--ok); background: #f0fdf4; }
+.filedrop.chosen strong { color: #08661e; }
+
+/* Optional profile-photo zip picker (step 1, beside the CSV). */
+.import-photos-bar {
+  display: flex; align-items: center; gap: 12px;
+  background: #f5f9ff; border: 1px solid #cdddff; border-radius: 12px;
+  padding: 14px; font-size: 13px;
+}
+.import-photos-bar .ipb-text { flex: 1 1 auto; min-width: 0; }
+.import-photos-bar label.btn { flex: 0 0 auto; }
+.import-photos-bar code { background: #e3edff; padding: 1px 5px; border-radius: 5px; font: 12px ui-monospace, monospace; }
 
 /* Security best-practice note (permanent, collapsible) -------------------- */
 .security-note { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; margin-bottom: 16px; }

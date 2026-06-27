@@ -549,19 +549,28 @@ function exportSelected(e) {
   if (members.length) exportCsv(members, e && e.currentTarget);
 }
 
-// --- CSV import -----------------------------------------------------------
+// --- CSV import (2-step wizard) -------------------------------------------
 const importState = {
   rows: [], // { include, name, location, contact, email, status, consentPublic, lat, lng, state, matchedLabel, imageName }
   geocoding: false,
   cancelled: false,
   images: null, // Map<filename, Uint8Array> from the optional photos zip
+  csvText: "", // raw text of the chosen CSV
+  csvName: "", // chosen CSV filename (for the picker label)
+  parsed: false, // whether csvText has been parsed into rows for review
+  step: 1,
 };
 
 function wireImport() {
   document.getElementById("import-btn").addEventListener("click", openImport);
   document.getElementById("close-import").addEventListener("click", closeImport);
   document.getElementById("import-cancel").addEventListener("click", closeImport);
-  document.getElementById("csv-file").addEventListener("change", onFileChosen);
+  document.getElementById("csv-file").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) onCsvChosen(f);
+  });
+  document.getElementById("import-continue").addEventListener("click", onContinue);
+  document.getElementById("import-back").addEventListener("click", () => goStep(1));
   document.getElementById("import-confirm").addEventListener("click", confirmImport);
   document.getElementById("zip-file").addEventListener("change", onZipChosen);
   document.getElementById("imp-all").addEventListener("click", () => setAllInclude(() => true));
@@ -577,7 +586,7 @@ function wireImport() {
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (file) readFile(file);
+    if (file) onCsvChosen(file);
   });
 }
 
@@ -585,15 +594,59 @@ function openImport() {
   importState.rows = [];
   importState.cancelled = false;
   importState.images = null;
+  importState.csvText = "";
+  importState.csvName = "";
+  importState.parsed = false;
   document.getElementById("import-error").style.display = "none";
-  document.getElementById("import-pick").style.display = "block";
-  document.getElementById("import-review").style.display = "none";
   document.getElementById("import-confirm").disabled = true;
+  document.getElementById("import-continue").disabled = true;
   document.getElementById("csv-file").value = "";
   document.getElementById("zip-file").value = "";
-  document.getElementById("zip-status").textContent =
-    "Attach a .zip to import photos referenced by the CSV’s Image column.";
+  document.getElementById("csv-drop-label").textContent = "Choose a CSV file";
+  document.getElementById("filedrop").classList.remove("chosen");
+  resetZipStatus();
+  goStep(1);
   document.getElementById("import-dialog").showModal();
+}
+
+/** Switch the wizard between step 1 (files) and step 2 (review). */
+function goStep(n) {
+  importState.step = n;
+  document.getElementById("import-pick").style.display = n === 1 ? "block" : "none";
+  document.getElementById("import-review").style.display = n === 2 ? "block" : "none";
+  document.getElementById("import-back").classList.toggle("hidden", n !== 2);
+  document.getElementById("import-continue").classList.toggle("hidden", n !== 1);
+  document.getElementById("import-confirm").classList.toggle("hidden", n !== 2);
+  document.querySelectorAll("#import-steps .wstep").forEach((li) => {
+    const s = Number(li.dataset.step);
+    li.classList.toggle("active", s === n);
+    li.classList.toggle("done", s < n);
+  });
+}
+
+function resetZipStatus() {
+  document.getElementById("zip-status").replaceChildren(
+    "Attach a ", el("code", { text: ".zip" }),
+    " of images named by an ", el("strong", { text: "Image" }), " column in the CSV.",
+  );
+}
+
+/** Step 1: a CSV was chosen (picker or drop). Read it; don't advance yet. */
+function onCsvChosen(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    importState.csvText = String(reader.result || "");
+    importState.csvName = file.name || "members.csv";
+    importState.parsed = false;
+    importState.rows = [];
+    importState.cancelled = true; // stop any geocoding still running from a prior file
+    document.getElementById("import-error").style.display = "none";
+    document.getElementById("csv-drop-label").textContent = `✓ ${importState.csvName}`;
+    document.getElementById("filedrop").classList.add("chosen");
+    document.getElementById("import-continue").disabled = false;
+  };
+  reader.onerror = () => importError("Could not read that file.");
+  reader.readAsText(file);
 }
 
 async function onZipChosen(e) {
@@ -603,9 +656,9 @@ async function onZipChosen(e) {
   status.textContent = "Reading zip…";
   try {
     importState.images = await readZip(await file.arrayBuffer());
-    status.textContent = `${importState.images.size} image${importState.images.size === 1 ? "" : "s"} found in the zip.`;
-    // Refresh the review rows so the 📷 badges reflect which files were found.
-    if (importState.rows.length) renderImportRows();
+    const n = importState.images.size;
+    status.textContent = `✓ ${n} image${n === 1 ? "" : "s"} found — matched to the CSV’s Image column on the next step.`;
+    if (importState.parsed) renderImportRows(); // refresh 📷 badges if already reviewed
   } catch (err) {
     console.error("zip read failed", err);
     importState.images = null;
@@ -613,21 +666,28 @@ async function onZipChosen(e) {
   }
 }
 
+/** Step 1 → 2: parse the CSV (first time) and reveal the review table. */
+function onContinue() {
+  if (!importState.csvText) return;
+  if (!importState.parsed) {
+    const res = buildRows(importState.csvText);
+    if (!res.ok) { importError(res.error); return; }
+    importState.parsed = true;
+    importState.cancelled = false;
+    document.getElementById("import-error").style.display = "none";
+    renderImportRows();
+    goStep(2);
+    geocodeAll();
+    return;
+  }
+  // Returning from Back with rows already built: just reflect any zip change.
+  renderImportRows();
+  goStep(2);
+}
+
 function closeImport() {
   importState.cancelled = true;
   document.getElementById("import-dialog").close();
-}
-
-function onFileChosen(e) {
-  const file = e.target.files?.[0];
-  if (file) readFile(file);
-}
-
-function readFile(file) {
-  const reader = new FileReader();
-  reader.onload = () => startReview(String(reader.result || ""));
-  reader.onerror = () => importError("Could not read that file.");
-  reader.readAsText(file);
 }
 
 function importError(msg) {
@@ -636,21 +696,20 @@ function importError(msg) {
   box.style.display = "block";
 }
 
-function startReview(text) {
+/** Parse CSV text into review rows. Returns { ok, error? }. */
+function buildRows(text) {
   let parsed;
   try {
     parsed = parseCsvObjects(text);
   } catch {
-    importError("That doesn't look like a valid CSV file.");
-    return;
+    return { ok: false, error: "That doesn't look like a valid CSV file." };
   }
   const map = mapHeaders(parsed.headers); // header -> field
   const byField = {};
   for (const [header, field] of Object.entries(map)) byField[field] = header;
 
   if (!byField.name && !byField.location) {
-    importError("Couldn't find name or location columns in that CSV.");
-    return;
+    return { ok: false, error: "Couldn't find name or location columns in that CSV." };
   }
 
   importState.rows = parsed.rows.map((r) => {
@@ -675,10 +734,7 @@ function startReview(text) {
     };
   }).filter((r) => r.name || r.location);
 
-  document.getElementById("import-pick").style.display = "none";
-  document.getElementById("import-review").style.display = "block";
-  renderImportRows();
-  geocodeAll();
+  return { ok: true };
 }
 
 /** Build the "Resolved pin" cell for an import row. */

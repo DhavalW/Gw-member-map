@@ -195,22 +195,52 @@
     </form>
   </dialog>
 
-  <!-- Import dialog -->
+  <!-- Import dialog (2-step wizard) -->
   <dialog id="import-dialog" aria-labelledby="import-title">
     <div class="dialog-head">
-      <h2 id="import-title">Import members from CSV</h2><span class="spacer"></span>
+      <h2 id="import-title">Import members</h2><span class="spacer"></span>
       <button type="button" class="icon-btn" id="close-import" aria-label="Close">&times;</button>
     </div>
+
+    <!-- Step indicator -->
+    <ol class="wizard-steps" id="import-steps" aria-label="Import steps">
+      <li class="wstep active" data-step="1"><span class="wstep-num">1</span><span class="wstep-label">Choose files</span></li>
+      <li class="wstep" data-step="2"><span class="wstep-num">2</span><span class="wstep-label">Review &amp; import</span></li>
+    </ol>
+
     <div class="dialog-body">
       <div class="notice err hidden" id="import-error"></div>
 
-      <!-- Step 1: choose a file -->
+      <!-- Step 1: choose files -->
       <div id="import-pick">
-        <p>Upload a CSV exported from this tool, or your raw sign-up sheet. Column
-          headers are detected automatically and each location is geocoded to a map
-          pin you can review before importing. Rows that don’t resolve can still be
-          imported as <strong>pending drafts</strong> — copy their edit link afterwards
-          so the member can set their own location.</p>
+        <p class="import-intro">Upload a CSV exported from this tool or your raw sign-up
+          sheet — column headers are detected automatically. You can optionally add a
+          <strong>.zip</strong> of profile photos. On the next step each location is
+          geocoded to a pin you can review before importing.</p>
+
+        <!-- 1a. CSV (required) -->
+        <div class="import-filerow">
+          <div class="import-filerow-head"><strong>1. Members CSV</strong> <span class="req">required</span></div>
+          <label class="filedrop" id="filedrop">
+            <input type="file" id="csv-file" accept=".csv,text/csv" hidden />
+            <strong id="csv-drop-label">Choose a CSV file</strong>
+            <span class="muted">or drag &amp; drop it here</span>
+          </label>
+        </div>
+
+        <!-- 1b. Photos zip (optional) -->
+        <div class="import-filerow">
+          <div class="import-filerow-head"><strong>2. Profile photos</strong> <span class="opt">optional</span></div>
+          <div class="import-photos-bar">
+            <div class="ipb-text">
+              <span class="muted" id="zip-status">Attach a <code>.zip</code> of images. Add an
+                <strong>Image</strong> column to the CSV naming each member’s file
+                (e.g. <code>jane.jpg</code>).</span>
+            </div>
+            <label class="btn small" id="zip-pick-btn" for="zip-file">Choose .zip</label>
+            <input type="file" id="zip-file" accept=".zip,application/zip" hidden />
+          </div>
+        </div>
 
         <details class="import-help">
           <summary>What should the CSV look like?</summary>
@@ -227,33 +257,19 @@
               <li><strong>Bio</strong> — a short description.</li>
               <li><strong>Status</strong> — <code>published</code>, <code>pending</code> or <code>hidden</code> (defaults to published).</li>
               <li><strong>Consent</strong> — <code>Yes</code>/<code>No</code> for public visibility (defaults to Yes).</li>
-              <li><strong>Image</strong> — a filename (e.g. <code>jane.jpg</code>) when importing photos; see below.</li>
+              <li><strong>Image</strong> — each member’s photo filename, when importing photos.</li>
             </ul>
-            <p class="muted">Tip: export the current directory first to see the exact
-              column layout this tool produces.</p>
-            <p><strong>Importing photos (optional):</strong> tick the photos box below and
-              attach a <code>.zip</code> of images. Add an <strong>Image</strong> column to your
-              CSV whose value is each member’s filename inside the zip
-              (e.g. <code>jane.jpg</code>, or <code>images/jane.jpg</code> — folders are ignored).
-              Photos are automatically resized and compressed on import.</p>
+            <p class="muted">Tip: export the current directory first (with “Photos (.zip)”
+              ticked) to get a CSV + photos bundle in exactly this format.</p>
+            <p class="muted">Photo filenames match the file’s base name, so
+              <code>jane.jpg</code> and <code>images/jane.jpg</code> both work. Imported
+              photos are resized and compressed automatically.</p>
           </div>
         </details>
-
-        <label class="filedrop" id="filedrop">
-          <input type="file" id="csv-file" accept=".csv,text/csv" hidden />
-          <strong>Choose a CSV file</strong>
-          <span class="muted">or drag &amp; drop it here</span>
-        </label>
       </div>
 
       <!-- Step 2: review -->
       <div id="import-review" class="hidden">
-        <div class="import-photos-bar">
-          <strong>Profile photos</strong> <span class="muted">(optional)</span>
-          <label class="btn small" for="zip-file">Choose photos .zip</label>
-          <input type="file" id="zip-file" accept=".zip,application/zip" hidden />
-          <span class="muted" id="zip-status">Attach a .zip to import photos referenced by the CSV’s <strong>Image</strong> column.</span>
-        </div>
         <div class="import-progress" id="import-progress">
           <div class="bar"><div class="bar-fill" id="geo-bar"></div></div>
           <span id="geo-status" class="muted"></span>
@@ -275,10 +291,13 @@
         </div>
       </div>
     </div>
+
     <div class="dialog-foot">
+      <button type="button" class="btn hidden" id="import-back">&larr; Back</button>
       <span class="spacer"></span>
       <button type="button" class="btn" id="import-cancel">Cancel</button>
-      <button type="button" class="btn primary" id="import-confirm" disabled>Import selected</button>
+      <button type="button" class="btn primary" id="import-continue" disabled>Continue &rarr;</button>
+      <button type="button" class="btn primary hidden" id="import-confirm" disabled>Import selected</button>
     </div>
   </dialog>
 
