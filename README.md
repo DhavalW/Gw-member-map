@@ -258,6 +258,44 @@ deleting it; re-ticking restores it.
 - The geocoding proxy is for interactive lookups and is edge-cached to respect
   Nominatim's usage policy. For very high traffic, switch to a paid geocoder.
 
+### Admin password & session secret (best practices)
+
+These are the only two secrets the app needs, and — **by design** — they are
+set as **deployment secrets, never from the admin dashboard**, so they can't
+leak through the admin UI and are never written to the database. (The admin
+dashboard shows a permanent reminder of the same guidance below.)
+
+**How to set or change them**
+
+- **Cloudflare dashboard (recommended for non-technical admins):** Workers &
+  Pages → your Worker → **Settings → Variables and Secrets** → add or edit
+  `ADMIN_PASSWORD` and `SESSION_SECRET`, then **Save and deploy**.
+- **CLI:** `wrangler secret put ADMIN_PASSWORD` and
+  `wrangler secret put SESSION_SECRET`.
+- **Local dev:** put them in `.dev.vars` (git-ignored).
+
+**Choosing good values**
+
+- `ADMIN_PASSWORD` — a long, unique passphrase from a password manager. Don't
+  reuse a password from anywhere else.
+- `SESSION_SECRET` — a long random string, e.g. `openssl rand -base64 32`. It
+  never needs to be memorable: generate it once and keep it in your password
+  manager. Using a real random secret (rather than anything derived from the
+  password) keeps admin sessions strong regardless of how simple the password
+  is, and avoids any per-request CPU cost on the Workers free tier.
+
+**When to change them**
+
+- Rotate `ADMIN_PASSWORD` if it may have been seen or shared, when someone with
+  access leaves, and periodically as good hygiene.
+- Rotate `SESSION_SECRET` only if you suspect a session/cookie was compromised.
+  ⚠️ Changing it **signs out every admin** — everyone simply logs in again.
+- After changing either value, **redeploy** (the dashboard's *Save and deploy*
+  does this for you).
+
+Never commit these to git, paste them into chat, or include them in
+screenshots. `.dev.vars` is git-ignored for exactly this reason.
+
 ---
 
 ## Data model

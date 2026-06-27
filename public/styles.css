@@ -280,6 +280,21 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .pin-ok { color: var(--ok); font-size: 12px; }
 .pin-warn { color: #b54708; font-size: 12px; }
 
+/* Security best-practice note (permanent, collapsible) -------------------- */
+.security-note { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; margin-bottom: 16px; }
+.security-note > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; font-size: 14px; list-style: none; }
+.security-note > summary::-webkit-details-marker { display: none; }
+.security-note > summary::before { content: "▸"; color: var(--muted); margin-right: 8px; }
+.security-note[open] > summary::before { content: "▾"; }
+.security-note-body { padding: 0 14px 12px; font-size: 13px; line-height: 1.5; }
+.security-note-body p { margin: 6px 0; }
+.security-note-body ul { margin: 8px 0; padding-left: 18px; }
+.security-note-body li { margin: 5px 0; }
+.security-note-body code {
+  background: #eef1f5; padding: 1px 5px; border-radius: 5px;
+  font: 12px ui-monospace, monospace;
+}
+
 /* Settings dialog --------------------------------------------------------- */
 #settings-dialog { width: min(560px, 96vw); }
 #settings-fields .field { padding-bottom: 14px; border-bottom: 1px solid var(--line); }

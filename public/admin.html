@@ -42,6 +42,31 @@
 
     <!-- Dashboard -->
     <div id="dash-view" style="display:none">
+      <!-- Permanent best-practice reminder for the two deployment secrets. -->
+      <details class="security-note" id="security-note">
+        <summary>Keeping this site secure — admin password &amp; session secret</summary>
+        <div class="security-note-body">
+          <p>For safety, the <strong>admin password</strong> and <strong>session secret</strong>
+            are <strong>not editable here</strong>. They are stored as encrypted
+            <em>deployment secrets</em>, so they can never leak through this dashboard or the database.</p>
+          <p><strong>Where to set or change them:</strong> in the Cloudflare dashboard go to
+            <em>Workers &amp; Pages → your Worker → Settings → Variables and Secrets</em>, edit
+            <code>ADMIN_PASSWORD</code> or <code>SESSION_SECRET</code>, then <em>Save and deploy</em>.
+            (Technical users can instead run <code>wrangler secret put ADMIN_PASSWORD</code>.)</p>
+          <ul>
+            <li><strong>Admin password</strong> — use a long, unique passphrase from a password
+              manager. Change it if anyone who shouldn’t have it may have seen it, when someone with
+              access leaves, and every few months as good hygiene.</li>
+            <li><strong>Session secret</strong> — a long random value (e.g. generated with
+              <code>openssl rand -base64 32</code>). Set it once and leave it. Change it only if you
+              suspect sign-ins were compromised — doing so <strong>signs out all admins</strong>, who
+              then simply log in again.</li>
+            <li>Never put either value in code, screenshots, or chat messages.</li>
+          </ul>
+          <p class="muted">Step-by-step instructions are in the project README under “Security”.</p>
+        </div>
+      </details>
+
       <div class="admin-toolbar">
         <input type="text" id="admin-filter" placeholder="Filter by name, location, contact or email…" />
         <select id="filter-status" class="filter-select" aria-label="Filter by status">
@@ -254,7 +279,8 @@
           Branding and integration options for this deployment. Changes take
           effect immediately for everyone — no redeploy needed. The admin
           password and session secret are kept as encrypted deployment secrets
-          and can’t be viewed or changed here.
+          and can’t be viewed or changed here — see the “Keeping this site
+          secure” note on the dashboard for how to set or rotate them.
         </p>
         <div id="settings-fields"></div>
       </div>
