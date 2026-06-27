@@ -169,6 +169,9 @@ dialog::backdrop { background: rgba(16, 24, 40, .45); }
 .notice.ok { background: #ecfdf3; color: #08661e; border: 1px solid #abefc6; }
 .notice.err { background: #fef3f2; color: #b42318; border: 1px solid #fda29b; }
 .notice.info { background: #eff8ff; color: #175cd3; border: 1px solid #b2ddff; }
+.notice.warn { background: #fffaeb; color: #b54708; border: 1px solid #fedf89; }
+/* Hidden until JS fills it in (inline styles are blocked by the strict CSP). */
+#status-banner { display: none; }
 
 .copybox { display: flex; gap: 8px; margin-top: 8px; }
 .copybox input { flex: 1; font-family: ui-monospace, monospace; font-size: 12px; }
