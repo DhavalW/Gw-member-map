@@ -213,6 +213,16 @@ export function downloadFile(filename, text, type = "text/csv;charset=utf-8") {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Trigger a client-side download of an already-built Blob (e.g. a zip). */
+export function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** Copy text to the clipboard, returning true on success. */
 export async function copyText(text) {
   try {
@@ -225,6 +235,206 @@ export async function copyText(text) {
 
 function safeStringify(o) {
   try { return JSON.stringify(o); } catch { return String(o); }
+}
+
+// --- Profile images -------------------------------------------------------
+// Member photos are compressed + resized to a small, square, web-optimised
+// avatar in the browser before they are ever uploaded. This keeps delivery
+// fast, the database small, and works without any server-side image library.
+
+export const PHOTO_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/avif";
+const PHOTO_MAX_DIM = 512; // longest side of the stored square avatar
+const PHOTO_QUALITY = 0.82;
+
+function loadBitmap(file) {
+  if ("createImageBitmap" in window) {
+    // Honour EXIF orientation so phone photos aren't sideways.
+    return createImageBitmap(file, { imageOrientation: "from-image" }).catch(() =>
+      createImageBitmap(file),
+    );
+  }
+  // Fallback for older engines: decode via an <img> + object URL.
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode failed")); };
+    img.src = url;
+  });
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * Resize + centre-crop an image file to a square WebP (JPEG fallback) avatar.
+ * Returns `{ blob, width, height }`. Throws if the file can't be decoded.
+ */
+export async function compressImageToBlob(file, { max = PHOTO_MAX_DIM, quality = PHOTO_QUALITY } = {}) {
+  const bitmap = await loadBitmap(file);
+  const srcW = bitmap.width || bitmap.naturalWidth;
+  const srcH = bitmap.height || bitmap.naturalHeight;
+  if (!srcW || !srcH) throw new Error("empty image");
+
+  const side = Math.min(srcW, srcH);
+  const sx = (srcW - side) / 2;
+  const sy = (srcH - side) / 2;
+  const size = Math.min(max, side);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+  if (typeof bitmap.close === "function") bitmap.close();
+
+  let blob = await canvasToBlob(canvas, "image/webp", quality);
+  // Some engines ignore WebP and silently return PNG (or null); fall back to a
+  // JPEG so we always upload a small, predictable format.
+  if (!blob || blob.type !== "image/webp") {
+    blob = await canvasToBlob(canvas, "image/jpeg", quality);
+  }
+  if (!blob) throw new Error("toBlob failed");
+  return { blob, width: size, height: size };
+}
+
+/** Build the cache-busted URL for a member's profile image, or null if none. */
+export function memberImageUrl(m) {
+  if (!m || m.imageUpdatedAt == null) return null;
+  return `/api/members/${encodeURIComponent(m.id)}/image?v=${m.imageUpdatedAt}`;
+}
+
+/**
+ * Upload (PUT) a processed image blob for a member. `editToken` authorises a
+ * member-owned upload; omit it for an admin (cookie-authenticated) upload.
+ * Returns the parsed `{ ok, status, data }` like `api()`.
+ */
+export async function uploadMemberImage(publicId, blob, { editToken, width, height } = {}) {
+  const headers = { "Content-Type": blob.type };
+  if (editToken) headers["X-Edit-Token"] = editToken;
+  if (width) headers["X-Image-Width"] = String(width);
+  if (height) headers["X-Image-Height"] = String(height);
+  const res = await fetch(`/api/members/${encodeURIComponent(publicId)}/image`, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers,
+    body: blob,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { /* non-json */ }
+  return { ok: res.ok, status: res.status, data: data || {} };
+}
+
+/** DELETE a member's profile image. `editToken` for member; omit for admin. */
+export async function deleteMemberImage(publicId, { editToken } = {}) {
+  const headers = {};
+  if (editToken) headers["X-Edit-Token"] = editToken;
+  const res = await fetch(`/api/members/${encodeURIComponent(publicId)}/image`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers,
+  });
+  return { ok: res.ok, status: res.status };
+}
+
+/**
+ * A reusable profile-photo picker. Renders a round preview, an Upload/Change
+ * button and a Remove button, and processes any chosen file (resize + compress)
+ * client-side. Returns a small controller:
+ *
+ *   element            — the DOM node to mount
+ *   setExisting(url)   — show an already-saved image (or null for none)
+ *   getState()         — { blob, removed }: a new processed blob to upload,
+ *                        and whether the member asked to clear an existing one
+ *   reset()            — clear back to the empty state
+ *   onError(fn)        — called with a message when processing fails
+ */
+export function createPhotoField({ hint } = {}) {
+  const state = { blob: null, width: 0, height: 0, removed: false, hadExisting: false };
+  let objUrl = null;
+  let errorHandler = null;
+
+  const img = el("img", { class: "photo-preview-img", alt: "Profile photo preview" });
+  const placeholder = el("div", { class: "photo-preview-ph", "aria-hidden": "true", text: "📷" });
+  const preview = el("div", { class: "photo-preview" }, [placeholder]);
+
+  const fileInput = el("input", { type: "file", accept: PHOTO_ACCEPT, class: "photo-file-input" });
+  const chooseBtn = el("button", { type: "button", class: "btn small", text: "Upload photo" });
+  const removeBtn = el("button", { type: "button", class: "btn small ghost photo-remove", text: "Remove" });
+
+  function revoke() { if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; } }
+  function showImage(src) {
+    img.src = src;
+    preview.replaceChildren(img);
+    removeBtn.classList.add("show");
+    chooseBtn.textContent = "Change photo";
+  }
+  function showPlaceholder() {
+    preview.replaceChildren(placeholder);
+    removeBtn.classList.remove("show");
+    chooseBtn.textContent = "Upload photo";
+  }
+
+  chooseBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = ""; // allow re-picking the same file later
+    if (!file) return;
+    chooseBtn.disabled = true;
+    const prev = chooseBtn.textContent;
+    chooseBtn.textContent = "Processing…";
+    try {
+      const { blob, width, height } = await compressImageToBlob(file);
+      revoke();
+      objUrl = URL.createObjectURL(blob);
+      state.blob = blob;
+      state.width = width;
+      state.height = height;
+      state.removed = false;
+      showImage(objUrl);
+    } catch (err) {
+      console.error("image processing failed", err);
+      chooseBtn.textContent = prev;
+      if (errorHandler) errorHandler("That image couldn’t be processed. Try a JPG, PNG or WebP.");
+    } finally {
+      chooseBtn.disabled = false;
+    }
+  });
+
+  removeBtn.addEventListener("click", () => {
+    revoke();
+    state.blob = null;
+    state.width = state.height = 0;
+    state.removed = true;
+    showPlaceholder();
+  });
+
+  const controls = el("div", { class: "photo-controls" }, [chooseBtn, removeBtn, fileInput]);
+  const element = el("div", { class: "photo-field" }, [
+    preview,
+    el("div", { class: "photo-side" }, [
+      controls,
+      hint ? el("div", { class: "hint", text: hint }) : null,
+    ]),
+  ]);
+
+  return {
+    element,
+    setExisting(url) {
+      state.blob = null;
+      state.removed = false;
+      state.hadExisting = !!url;
+      if (url) showImage(url);
+      else showPlaceholder();
+    },
+    getState() { return { blob: state.blob, width: state.width, height: state.height, removed: state.removed }; },
+    hasChange() { return !!state.blob || (state.removed && state.hadExisting); },
+    onError(fn) { errorHandler = fn; },
+    reset() { revoke(); state.blob = null; state.width = state.height = 0; state.removed = false; state.hadExisting = false; showPlaceholder(); },
+  };
 }
 
 /** Configure Leaflet's default marker icons to use our vendored images. */

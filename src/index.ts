@@ -22,18 +22,22 @@ import {
   clearLoginAttempts,
   countRecentByIp,
   deleteMember,
+  deleteMemberImage,
   getByPublicId,
   getLoginAttempt,
+  getMemberImage,
+  imagesPresent,
   insertMember,
   listAllMembers,
   listPublicMembers,
   mergeMembers,
+  putMemberImage,
   recordLoginFailure,
   setEditTokenHash,
   toOwner,
   updateMember,
 } from "./db";
-import type { InsertMember } from "./db";
+import type { InsertMember, MergeImagePlan } from "./db";
 import { geocode } from "./geocode";
 import { ensureSchema } from "./schema";
 import {
@@ -50,6 +54,12 @@ const SUBMIT_WINDOW_MS = 60 * 60 * 1000;
 // size (D1 limits how many statements one batch() may contain).
 const IMPORT_MAX_ROWS = 5000;
 const IMPORT_CHUNK = 50;
+
+// Profile images are compressed + resized client-side to a small square avatar
+// before upload. The Worker still enforces a hard ceiling on the stored bytes
+// and the accepted formats so the database can't be bloated with large blobs.
+const MAX_IMAGE_BYTES = 256 * 1024; // 256 KB after client-side compression
+const ALLOWED_IMAGE_TYPES = new Set(["image/webp", "image/jpeg", "image/png"]);
 
 // --- Admin login brute-force protection ---
 // Failures are counted per IP within a rolling window; once the free-attempt
@@ -145,6 +155,16 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   // --- Create a submission ---
   if (pathname === "/api/members" && method === "POST") {
     return handleCreate(request, env);
+  }
+
+  // --- Member profile image: GET (public/owner) / PUT / DELETE ---
+  const imageMatch = pathname.match(/^\/api\/members\/([A-Za-z0-9_-]+)\/image$/);
+  if (imageMatch) {
+    const publicId = imageMatch[1]!;
+    if (method === "GET") return handleGetImage(request, env, publicId);
+    if (method === "PUT") return handlePutImage(request, env, publicId);
+    if (method === "DELETE") return handleDeleteImage(request, env, publicId);
+    return json({ error: "Method not allowed" }, 405);
   }
 
   // --- Member by id: GET (load for edit) / PUT (update) / DELETE ---
@@ -455,6 +475,110 @@ async function handleDelete(request: Request, env: Env, publicId: string): Promi
   return json({ ok: true });
 }
 
+// ---------------------------------------------------------------------------
+// Profile images
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve a member's profile image. Public (long-cached) when the member is
+ * published and opted in; otherwise only the owner/admin may fetch it and the
+ * response is marked private. A missing image — or an unauthorised request for
+ * a non-public member — returns 404 without revealing the entry.
+ */
+async function handleGetImage(request: Request, env: Env, publicId: string): Promise<Response> {
+  const row = await getByPublicId(env, publicId);
+  if (!row) return json({ error: "Not found" }, 404);
+
+  const isPublic = row.status === "published" && row.consent_public === 1;
+  if (!isPublic) {
+    const auth = await authorizeMember(request, env, row);
+    if (!auth.ok) return json({ error: "Not found" }, 404);
+  }
+
+  const img = await getMemberImage(env, publicId);
+  if (!img) return json({ error: "Not found" }, 404);
+
+  // The image URL carries a `?v=<image_updated_at>` cache-buster, so a public
+  // image can be cached immutably; private images must not be shared-cached.
+  const etag = `"${publicId}-${img.updated_at}"`;
+  if (request.headers.get("If-None-Match") === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+  const cacheControl = isPublic
+    ? "public, max-age=31536000, immutable"
+    : "private, no-cache";
+  return new Response(blobToBytes(img.bytes), {
+    status: 200,
+    headers: {
+      "Content-Type": img.content_type,
+      "Cache-Control": cacheControl,
+      ETag: etag,
+    },
+  });
+}
+
+/**
+ * Normalise a D1 BLOB read into bytes. D1 returns BLOB columns as a `number[]`,
+ * but be defensive and also accept an ArrayBuffer / typed-array view.
+ */
+function blobToBytes(raw: ArrayBuffer | number[]): Uint8Array {
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (ArrayBuffer.isView(raw)) {
+    const view = raw as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+  return new Uint8Array(raw);
+}
+
+/** Upload/replace a member's profile image (owner via edit token, or admin). */
+async function handlePutImage(request: Request, env: Env, publicId: string): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+
+  const row = await getByPublicId(env, publicId);
+  if (!row) return json({ error: "Not found" }, 404);
+
+  const auth = await authorizeMember(request, env, row);
+  if (!auth.ok) return json({ error: "Unauthorized" }, 401);
+
+  const contentType = (request.headers.get("Content-Type") || "").split(";")[0]!.trim().toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
+    return json({ error: "Unsupported image type. Use JPG, PNG or WebP." }, 415);
+  }
+
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength === 0) return json({ error: "Empty image." }, 400);
+  if (buf.byteLength > MAX_IMAGE_BYTES) {
+    return json({ error: "Image is too large after processing. Please choose a smaller image." }, 413);
+  }
+
+  const width = Number(request.headers.get("X-Image-Width")) || null;
+  const height = Number(request.headers.get("X-Image-Height")) || null;
+
+  const version = await putMemberImage(env, publicId, {
+    content_type: contentType,
+    bytes: buf,
+    width: width && Number.isFinite(width) ? width : null,
+    height: height && Number.isFinite(height) ? height : null,
+    size: buf.byteLength,
+  });
+
+  return json({ ok: true, imageUpdatedAt: version });
+}
+
+/** Remove a member's profile image (owner or admin). */
+async function handleDeleteImage(request: Request, env: Env, publicId: string): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+
+  const row = await getByPublicId(env, publicId);
+  if (!row) return json({ error: "Not found" }, 404);
+
+  const auth = await authorizeMember(request, env, row);
+  if (!auth.ok) return json({ error: "Unauthorized" }, 401);
+
+  await deleteMemberImage(env, publicId);
+  return json({ ok: true });
+}
+
 /**
  * Admin: mint a fresh edit link for a member. We only ever store the hash of
  * the edit token, so the original can't be recovered — instead we generate a
@@ -590,18 +714,38 @@ async function handleAdminMerge(request: Request, env: Env): Promise<Response> {
     ? String(fields.status)
     : primary.status;
 
-  await mergeMembers(env, primaryId, sourceIds, {
-    display_name: v.display_name,
-    email: v.email,
-    location_name: v.location_name,
-    lat: v.lat,
-    lng: v.lng,
-    bio: v.bio,
-    contact_label: v.contact_label,
-    contact_url: v.contact_url,
-    status,
-    consent_public: v.consent_public ? 1 : 0,
-  });
+  // Resolve which record's photo the kept record should end up with. The UI
+  // sends the chosen record's public_id, or "" for "no photo". We validate it
+  // against the images that actually exist so a stale choice can't set a flag
+  // with no bytes behind it.
+  const withImage = await imagesPresent(env, [primaryId, ...sourceIds]);
+  const rawImageSource =
+    typeof body?.imageSource === "string" ? body.imageSource : primaryId;
+  let image: MergeImagePlan = "keep";
+  if (rawImageSource === "") {
+    image = withImage.has(primaryId) ? "remove" : "keep";
+  } else if (rawImageSource !== primaryId && sourceIds.includes(rawImageSource)) {
+    image = withImage.has(rawImageSource) ? { copyFrom: rawImageSource } : "keep";
+  }
+
+  await mergeMembers(
+    env,
+    primaryId,
+    sourceIds,
+    {
+      display_name: v.display_name,
+      email: v.email,
+      location_name: v.location_name,
+      lat: v.lat,
+      lng: v.lng,
+      bio: v.bio,
+      contact_label: v.contact_label,
+      contact_url: v.contact_url,
+      status,
+      consent_public: v.consent_public ? 1 : 0,
+    },
+    image,
+  );
 
   return json({ ok: true, primaryId, merged: sourceIds.length });
 }
@@ -625,6 +769,10 @@ async function handleAdminImport(request: Request, env: Env): Promise<Response> 
 
   const prepared: InsertMember[] = [];
   const skipped: { row: number; reason: string }[] = [];
+  // Original row index for each prepared insert, so the response can tell the
+  // client which new public_id each accepted input row became (used to attach
+  // uploaded profile images from the optional import zip).
+  const preparedIndex: number[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const r = (rows[i] ?? {}) as Record<string, unknown>;
@@ -671,13 +819,18 @@ async function handleAdminImport(request: Request, env: Env): Promise<Response> 
       edit_token_hash: await sha256Hex(randomToken(32)),
       ip_hash: null,
     });
+    preparedIndex.push(i);
   }
 
   for (let i = 0; i < prepared.length; i += IMPORT_CHUNK) {
     await bulkInsertMembers(env, prepared.slice(i, i + IMPORT_CHUNK));
   }
 
-  return json({ ok: true, imported: prepared.length, skipped });
+  // Map each accepted input row to its freshly minted public_id so the client
+  // can upload the matching image (if any) from the optional import zip.
+  const created = prepared.map((p, k) => ({ index: preparedIndex[k]!, id: p.public_id }));
+
+  return json({ ok: true, imported: prepared.length, skipped, created });
 }
 
 async function handleAdminLogin(request: Request, env: Env): Promise<Response> {

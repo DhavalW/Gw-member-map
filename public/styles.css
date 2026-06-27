@@ -90,6 +90,9 @@ aside.sidebar {
 }
 .av-sm { width: 38px; height: 38px; font-size: 13px; }
 .av-lg { width: 42px; height: 42px; font-size: 15px; }
+/* When a member has a photo the avatar holds an <img> that fills the circle. */
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.avatar.has-img { background: #e3e7eb !important; }
 
 /* Popup header with avatar + name/location side by side */
 .popup-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -130,6 +133,30 @@ aside.sidebar {
 .field .err { color: var(--danger); font-size: 13px; margin-top: 4px; display: none; }
 .field.has-error .err { display: block; }
 .field.has-error input, .field.has-error textarea { border-color: var(--danger); }
+
+/* Profile-photo picker (sign-up form, member edit, admin edit dialog) ------ */
+.photo-field { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+.photo-preview {
+  width: 96px; height: 96px; flex: 0 0 auto; border-radius: 50%;
+  background: #f0f2f5; border: 1px solid var(--line); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-preview-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-preview-ph { font-size: 30px; opacity: .5; }
+.photo-side { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.photo-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.photo-file-input { display: none; }
+.photo-remove { display: none; }
+.photo-remove.show { display: inline-flex; }
+
+/* Small round thumbnail in the admin table's name cell. */
+.admin-name { display: flex; align-items: center; gap: 10px; }
+.admin-thumb {
+  width: 32px; height: 32px; border-radius: 50%; flex: 0 0 auto; overflow: hidden;
+  background: #e3e7eb; display: inline-flex; align-items: center; justify-content: center;
+}
+.admin-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.admin-thumb .ph { font-size: 13px; opacity: .55; }
 
 .checkbox { display: flex; gap: 10px; align-items: flex-start; }
 .checkbox input { margin-top: 3px; width: 18px; height: 18px; flex: 0 0 auto; }
@@ -279,6 +306,64 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .import-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .pin-ok { color: var(--ok); font-size: 12px; }
 .pin-warn { color: #b54708; font-size: 12px; }
+.pin-photo { font-size: 12px; margin-left: 6px; }
+
+/* Export "Photos (.zip)" toggle in the admin toolbar. */
+.export-photos {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+  color: var(--muted); white-space: nowrap; cursor: pointer;
+}
+.export-photos input { width: 15px; height: 15px; cursor: pointer; }
+
+/* Import dialog: CSV-format help + optional photo-zip controls. */
+.import-help { margin: 4px 0 14px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; }
+.import-help > summary { cursor: pointer; padding: 10px 12px; font-weight: 600; font-size: 13px; list-style: none; }
+.import-help > summary::-webkit-details-marker { display: none; }
+.import-help > summary::before { content: "▸"; color: var(--muted); margin-right: 8px; }
+.import-help[open] > summary::before { content: "▾"; }
+.import-help-body { padding: 0 14px 12px; font-size: 13px; line-height: 1.55; }
+.import-help-body ul { margin: 8px 0; padding-left: 18px; }
+.import-help-body li { margin: 4px 0; }
+.import-help-body code { background: #eef1f5; padding: 1px 5px; border-radius: 5px; font: 12px ui-monospace, monospace; }
+
+/* Import wizard: step indicator + per-file rows -------------------------- */
+.wizard-steps {
+  display: flex; align-items: center; list-style: none; margin: 0;
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+}
+.wizard-steps .wstep { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.wizard-steps .wstep + .wstep::before {
+  content: ""; width: 36px; height: 2px; background: var(--line); margin: 0 12px; display: inline-block;
+}
+.wizard-steps .wstep-num {
+  width: 24px; height: 24px; border-radius: 50%; background: #e3e7eb; color: #5c6670;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+}
+.wizard-steps .wstep.active { color: var(--ink); }
+.wizard-steps .wstep.active .wstep-num { background: var(--brand); color: #fff; }
+.wizard-steps .wstep.done .wstep-num { background: var(--ok); color: #fff; }
+
+.import-intro { margin-top: 0; }
+.import-filerow { margin-top: 16px; }
+.import-filerow-head { font-size: 13px; margin-bottom: 6px; }
+.import-filerow-head .req, .import-filerow-head .opt {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; margin-left: 6px;
+}
+.import-filerow-head .req { color: var(--danger); }
+.import-filerow-head .opt { color: var(--muted); }
+
+.filedrop.chosen { border-style: solid; border-color: var(--ok); background: #f0fdf4; }
+.filedrop.chosen strong { color: #08661e; }
+
+/* Optional profile-photo zip picker (step 1, beside the CSV). */
+.import-photos-bar {
+  display: flex; align-items: center; gap: 12px;
+  background: #f5f9ff; border: 1px solid #cdddff; border-radius: 12px;
+  padding: 14px; font-size: 13px;
+}
+.import-photos-bar .ipb-text { flex: 1 1 auto; min-width: 0; }
+.import-photos-bar label.btn { flex: 0 0 auto; }
+.import-photos-bar code { background: #e3edff; padding: 1px 5px; border-radius: 5px; font: 12px ui-monospace, monospace; }
 
 /* Security best-practice note (permanent, collapsible) -------------------- */
 .security-note { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; margin-bottom: 16px; }

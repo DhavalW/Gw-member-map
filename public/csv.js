@@ -96,6 +96,9 @@ export function detectField(header) {
   // word "location", so it must be matched as consent first.
   if (h.includes("consent") || h.includes("shared")) return "consent";
   if (h === "email" || h.includes("e-mail")) return "email";
+  if (h.includes("image") || h.includes("photo") || h.includes("avatar") ||
+      h.includes("picture") || h.includes("headshot"))
+    return "image";
   if (h.includes("latitude") || h === "lat") return "lat";
   if (h.includes("longitude") || h === "lng" || h === "lon") return "lng";
   if (h.includes("contact") || h.includes("preferred") || h.includes("link"))

@@ -36,6 +36,11 @@ export interface MemberRow {
   ip_hash: string | null;
   created_at: number;
   updated_at: number;
+  // Timestamp (ms) the member's profile image was last set. NULL when the member
+  // has no image. Doubles as a cache-busting version for the image URL. The
+  // image bytes themselves live in the separate `member_images` table so this
+  // flag can ride along on list queries without pulling blobs.
+  image_updated_at: number | null;
 }
 
 /** Fields safe to expose on the public map. */
@@ -49,6 +54,8 @@ export interface PublicMember {
   contactLabel: string;
   contactUrl: string;
   createdAt: number;
+  /** ms timestamp the profile image was last set, or null if none. */
+  imageUpdatedAt: number | null;
 }
 
 /** Fields returned to the owner/admin when editing (includes email). */

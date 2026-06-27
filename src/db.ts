@@ -11,6 +11,7 @@ export function toPublic(row: MemberRow): PublicMember {
     contactLabel: row.contact_label,
     contactUrl: row.contact_url,
     createdAt: row.created_at,
+    imageUpdatedAt: row.image_updated_at ?? null,
   };
 }
 
@@ -189,9 +190,92 @@ export async function adminUpdateMember(
 }
 
 export async function deleteMember(env: Env, publicId: string): Promise<void> {
-  await env.DB.prepare(`DELETE FROM members WHERE public_id = ?`)
+  // Remove the member's profile image alongside the record so deleting an entry
+  // never leaves an orphaned blob behind.
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM member_images WHERE public_id = ?`).bind(publicId),
+    env.DB.prepare(`DELETE FROM members WHERE public_id = ?`).bind(publicId),
+  ]);
+}
+
+// ---- Member profile images ----
+
+export interface MemberImageRow {
+  content_type: string;
+  // D1 returns BLOB columns as a number[] (not an ArrayBuffer); callers must
+  // normalise before use (see `blobToBytes` in src/index.ts).
+  bytes: ArrayBuffer | number[];
+  updated_at: number;
+}
+
+/** Fetch the stored image bytes for a member (or null when none). */
+export async function getMemberImage(
+  env: Env,
+  publicId: string,
+): Promise<MemberImageRow | null> {
+  return env.DB.prepare(
+    `SELECT content_type, bytes, updated_at FROM member_images WHERE public_id = ?`,
+  )
     .bind(publicId)
-    .run();
+    .first<MemberImageRow>();
+}
+
+export interface PutImage {
+  content_type: string;
+  bytes: ArrayBuffer;
+  width: number | null;
+  height: number | null;
+  size: number;
+}
+
+/**
+ * Upsert a member's image and stamp `members.image_updated_at`. Returns the new
+ * version timestamp so callers can build a fresh, cache-busted image URL.
+ */
+export async function putMemberImage(
+  env: Env,
+  publicId: string,
+  img: PutImage,
+): Promise<number> {
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO member_images (public_id, content_type, bytes, width, height, size, updated_at)
+         VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(public_id) DO UPDATE SET
+           content_type = excluded.content_type, bytes = excluded.bytes,
+           width = excluded.width, height = excluded.height,
+           size = excluded.size, updated_at = excluded.updated_at`,
+    ).bind(publicId, img.content_type, img.bytes, img.width, img.height, img.size, now),
+    env.DB.prepare(
+      `UPDATE members SET image_updated_at = ?, updated_at = ? WHERE public_id = ?`,
+    ).bind(now, now, publicId),
+  ]);
+  return now;
+}
+
+/** Remove a member's image and clear the `image_updated_at` flag. */
+export async function deleteMemberImage(env: Env, publicId: string): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM member_images WHERE public_id = ?`).bind(publicId),
+    env.DB.prepare(
+      `UPDATE members SET image_updated_at = NULL, updated_at = ? WHERE public_id = ?`,
+    ).bind(Date.now(), publicId),
+  ]);
+}
+
+/** Which of the given public ids currently have a stored image. */
+export async function imagesPresent(
+  env: Env,
+  publicIds: string[],
+): Promise<Set<string>> {
+  if (publicIds.length === 0) return new Set();
+  const { results } = await env.DB.prepare(
+    `SELECT public_id FROM member_images WHERE public_id IN (${placeholders(publicIds.length)})`,
+  )
+    .bind(...publicIds)
+    .all<{ public_id: string }>();
+  return new Set(results.map((r) => r.public_id));
 }
 
 /**
@@ -201,11 +285,20 @@ export async function deleteMember(env: Env, publicId: string): Promise<void> {
  * `batch()` so the merge is atomic — callers must ensure `sourceIds` excludes
  * the primary id.
  */
+/**
+ * How the kept record's profile image is resolved during a merge:
+ * - `"keep"`   — leave the primary's existing image untouched;
+ * - `"remove"` — delete the primary's image (admin chose "no photo");
+ * - `{ copyFrom }` — copy a source record's image onto the primary.
+ */
+export type MergeImagePlan = "keep" | "remove" | { copyFrom: string };
+
 export async function mergeMembers(
   env: Env,
   primaryId: string,
   sourceIds: string[],
   m: UpdateMember & { status: string; consent_public: number },
+  image: MergeImagePlan = "keep",
 ): Promise<void> {
   const now = Date.now();
   const stmts = [
@@ -230,11 +323,38 @@ export async function mergeMembers(
       primaryId,
     ),
   ];
-  if (sourceIds.length > 0) {
+
+  // Resolve the image onto the primary BEFORE the source rows (and their image
+  // rows) are deleted below, so a copy-from-source still has bytes to read.
+  if (image === "remove") {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM member_images WHERE public_id = ?`).bind(primaryId),
+      env.DB.prepare(
+        `UPDATE members SET image_updated_at = NULL WHERE public_id = ?`,
+      ).bind(primaryId),
+    );
+  } else if (typeof image === "object" && image.copyFrom && image.copyFrom !== primaryId) {
     stmts.push(
       env.DB.prepare(
-        `DELETE FROM members WHERE public_id IN (${placeholders(sourceIds.length)})`,
-      ).bind(...sourceIds),
+        `INSERT INTO member_images (public_id, content_type, bytes, width, height, size, updated_at)
+           SELECT ?, content_type, bytes, width, height, size, ?
+             FROM member_images WHERE public_id = ?
+           ON CONFLICT(public_id) DO UPDATE SET
+             content_type = excluded.content_type, bytes = excluded.bytes,
+             width = excluded.width, height = excluded.height,
+             size = excluded.size, updated_at = excluded.updated_at`,
+      ).bind(primaryId, now, image.copyFrom),
+      env.DB.prepare(
+        `UPDATE members SET image_updated_at = ? WHERE public_id = ?`,
+      ).bind(now, primaryId),
+    );
+  }
+
+  if (sourceIds.length > 0) {
+    const ph = placeholders(sourceIds.length);
+    stmts.push(
+      env.DB.prepare(`DELETE FROM member_images WHERE public_id IN (${ph})`).bind(...sourceIds),
+      env.DB.prepare(`DELETE FROM members WHERE public_id IN (${ph})`).bind(...sourceIds),
     );
   }
   await env.DB.batch(stmts);
@@ -413,15 +533,15 @@ export async function bulkSetConsent(
     .run();
 }
 
-/** Delete many members at once. */
+/** Delete many members at once, including any stored profile images. */
 export async function bulkDeleteMembers(
   env: Env,
   publicIds: string[],
 ): Promise<void> {
   if (publicIds.length === 0) return;
-  await env.DB.prepare(
-    `DELETE FROM members WHERE public_id IN (${placeholders(publicIds.length)})`,
-  )
-    .bind(...publicIds)
-    .run();
+  const ph = placeholders(publicIds.length);
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM member_images WHERE public_id IN (${ph})`).bind(...publicIds),
+    env.DB.prepare(`DELETE FROM members WHERE public_id IN (${ph})`).bind(...publicIds),
+  ]);
 }

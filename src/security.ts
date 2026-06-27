@@ -207,7 +207,7 @@ export function securityHeaders(): Record<string, string> {
     // optional Turnstile anti-spam widget load without further CSP edits.
     "script-src 'self' https://challenges.cloudflare.com",
     "style-src 'self'",
-    "img-src 'self' data: https://*.tile.openstreetmap.org",
+    "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
     "connect-src 'self' https://nominatim.openstreetmap.org",
     "frame-src https://challenges.cloudflare.com",
     "font-src 'self'",

@@ -1,5 +1,6 @@
-import { api, configureLeafletIcons, copyText, downloadFile, el, getConfig } from "/common.js";
+import { api, compressImageToBlob, configureLeafletIcons, copyText, createPhotoField, deleteMemberImage, downloadBlob, downloadFile, el, getConfig, memberImageUrl, uploadMemberImage } from "/common.js";
 import { mapHeaders, parseCsvObjects, toCsv } from "/csv.js";
+import { buildZip, readZip } from "/zip.js";
 
 const L = window.L;
 configureLeafletIcons(L);
@@ -7,6 +8,7 @@ configureLeafletIcons(L);
 let CONFIG = {};
 let MEMBERS = [];
 let editing = null; // currently edited member id
+let editPhoto = null; // profile-photo picker in the edit dialog
 const selected = new Set(); // selected public ids (persists across filtering)
 const pick = { map: null, marker: null };
 
@@ -80,7 +82,7 @@ async function loadDashboard() {
   document.getElementById("filter-consent").addEventListener("change", render);
   document.getElementById("filter-location").addEventListener("change", render);
   document.getElementById("filter-clear").addEventListener("click", clearFilters);
-  document.getElementById("export-btn").addEventListener("click", () => exportCsv(MEMBERS));
+  document.getElementById("export-btn").addEventListener("click", (e) => exportCsv(MEMBERS, e.currentTarget));
   document.getElementById("bulk-export").addEventListener("click", exportSelected);
   document.getElementById("select-all").addEventListener("change", onSelectAll);
   document.getElementById("bulk-clear").addEventListener("click", clearSelection);
@@ -98,6 +100,16 @@ async function onLogout() {
 }
 
 // --- Rendering ------------------------------------------------------------
+/** Small round thumbnail (photo or initial) for the admin table name cell. */
+function thumbEl(m) {
+  const url = memberImageUrl(m);
+  if (url) {
+    return el("span", { class: "admin-thumb" }, [el("img", { src: url, alt: "", loading: "lazy" })]);
+  }
+  const initial = (m.name || "?").trim().charAt(0).toUpperCase() || "?";
+  return el("span", { class: "admin-thumb" }, [el("span", { class: "ph", text: initial })]);
+}
+
 // A member is treated as "needs location" when it sits on the placeholder pin
 // (0,0) used for unresolved imports.
 const needsLocation = (m) => Number(m.lat) === 0 && Number(m.lng) === 0;
@@ -159,7 +171,7 @@ function render() {
 
     const row = el("tr", {}, [
       el("td", { class: "col-check" }, [check]),
-      el("td", {}, [el("strong", { text: m.name })]),
+      el("td", {}, [el("div", { class: "admin-name" }, [thumbEl(m), el("strong", { text: m.name })])]),
       el("td", { text: m.location }),
       el("td", { text: m.contactLabel || "—" }),
       el("td", { text: m.email || "—" }),
@@ -274,10 +286,21 @@ function wireEditDialog() {
   document.getElementById("admin-delete").addEventListener("click", onDelete);
   document.getElementById("a-genlink").addEventListener("click", onGenerateLink);
   document.getElementById("a-copylink").addEventListener("click", onCopyDialogLink);
+
+  editPhoto = createPhotoField({ hint: "Square works best. JPG, PNG or WebP — resized automatically." });
+  editPhoto.onError(showEditError);
+  document.getElementById("admin-photo-holder").append(editPhoto.element);
+}
+
+function showEditError(msg) {
+  const box = document.getElementById("admin-edit-error");
+  box.textContent = msg;
+  box.style.display = "block";
 }
 
 function openEdit(m) {
   editing = m.id;
+  if (editPhoto) editPhoto.setExisting(memberImageUrl(m));
   document.getElementById("a-name").value = m.name || "";
   document.getElementById("a-loc").value = m.location || "";
   document.getElementById("a-lat").value = m.lat;
@@ -389,6 +412,26 @@ async function onSave(e) {
     errBox.style.display = "block";
     return;
   }
+
+  // Persist any profile-photo change (admin is cookie-authenticated).
+  const photo = editPhoto ? editPhoto.getState() : null;
+  if (photo && (photo.blob || photo.removed)) {
+    try {
+      if (photo.blob) {
+        const up = await uploadMemberImage(editing, photo.blob, { width: photo.width, height: photo.height });
+        if (!up.ok) throw new Error(up.data.error || "photo upload failed");
+      } else if (photo.removed) {
+        await deleteMemberImage(editing);
+      }
+    } catch (err) {
+      console.error("photo save failed", err);
+      errBox.textContent = "Saved, but the photo couldn’t be updated. Please try again.";
+      errBox.style.display = "block";
+      await refresh();
+      return;
+    }
+  }
+
   document.getElementById("edit-dialog").close();
   await refresh();
 }
@@ -427,8 +470,16 @@ const EXPORT_COLUMNS = [
   "Latitude", "Longitude", "Status", "Consent", "PublicId",
 ];
 
-function exportCsv(members) {
-  const rows = members.map((m) => ({
+const IMAGE_EXT = { "image/webp": "webp", "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif" };
+
+function exportBaseName() {
+  const slug = (CONFIG.communityName || "members")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "members";
+  return `${slug}-members-${new Date().toISOString().slice(0, 10)}`;
+}
+
+function exportRow(m, imageName) {
+  const row = {
     Name: m.name,
     Location: m.location,
     Contact: m.contactLabel || "",
@@ -439,31 +490,89 @@ function exportCsv(members) {
     Status: m.status,
     Consent: m.consentPublic ? "Yes" : "No",
     PublicId: m.id,
-  }));
-  const stamp = new Date().toISOString().slice(0, 10);
-  const slug = (CONFIG.communityName || "members")
-    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "members";
-  downloadFile(`${slug}-members-${stamp}.csv`, toCsv(EXPORT_COLUMNS, rows));
+  };
+  if (imageName !== undefined) row.Image = imageName;
+  return row;
 }
 
-function exportSelected() {
+async function exportCsv(members, btn) {
+  const withPhotos = document.getElementById("export-photos")?.checked;
+  const base = exportBaseName();
+
+  if (!withPhotos) {
+    downloadFile(`${base}.csv`, toCsv(EXPORT_COLUMNS, members.map((m) => exportRow(m))));
+    return;
+  }
+
+  // Bundle the CSV + an images/ folder into a single .zip. Each member with a
+  // photo gets a file named "<PublicId>.<ext>" referenced by the CSV's Image
+  // column, so the same zip can be re-imported.
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; }
+  try {
+    const files = [];
+    const rows = [];
+    const photoMembers = members.filter((m) => m.imageUpdatedAt != null);
+    let done = 0;
+    const imageByMember = new Map();
+
+    for (const m of photoMembers) {
+      if (btn) btn.textContent = `Fetching photos… ${++done}/${photoMembers.length}`;
+      try {
+        const res = await fetch(memberImageUrl(m), { credentials: "same-origin" });
+        if (!res.ok) continue;
+        const type = res.headers.get("Content-Type") || "image/jpeg";
+        const ext = IMAGE_EXT[type.split(";")[0].trim()] || "jpg";
+        const name = `${m.id}.${ext}`;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        files.push({ name: `images/${name}`, data: bytes });
+        imageByMember.set(m.id, name);
+      } catch (err) {
+        console.warn("export photo failed", m.id, err);
+      }
+    }
+
+    for (const m of members) rows.push(exportRow(m, imageByMember.get(m.id) || ""));
+    const csv = toCsv([...EXPORT_COLUMNS, "Image"], rows);
+    files.unshift({ name: "members.csv", data: new TextEncoder().encode(csv) });
+
+    if (btn) btn.textContent = "Building zip…";
+    downloadBlob(`${base}.zip`, buildZip(files));
+    flash("dash-ok", `Exported ${members.length} member${members.length === 1 ? "" : "s"} with ${files.length - 1} photo${files.length - 1 === 1 ? "" : "s"}.`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+function exportSelected(e) {
   const members = MEMBERS.filter((m) => selected.has(m.id));
-  if (members.length) exportCsv(members);
+  if (members.length) exportCsv(members, e && e.currentTarget);
 }
 
-// --- CSV import -----------------------------------------------------------
+// --- CSV import (2-step wizard) -------------------------------------------
 const importState = {
-  rows: [], // { include, name, location, contact, email, status, consentPublic, lat, lng, state, matchedLabel }
+  rows: [], // { include, name, location, contact, email, status, consentPublic, lat, lng, state, matchedLabel, imageName }
   geocoding: false,
   cancelled: false,
+  images: null, // Map<filename, Uint8Array> from the optional photos zip
+  csvText: "", // raw text of the chosen CSV
+  csvName: "", // chosen CSV filename (for the picker label)
+  parsed: false, // whether csvText has been parsed into rows for review
+  step: 1,
 };
 
 function wireImport() {
   document.getElementById("import-btn").addEventListener("click", openImport);
   document.getElementById("close-import").addEventListener("click", closeImport);
   document.getElementById("import-cancel").addEventListener("click", closeImport);
-  document.getElementById("csv-file").addEventListener("change", onFileChosen);
+  document.getElementById("csv-file").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) onCsvChosen(f);
+  });
+  document.getElementById("import-continue").addEventListener("click", onContinue);
+  document.getElementById("import-back").addEventListener("click", () => goStep(1));
   document.getElementById("import-confirm").addEventListener("click", confirmImport);
+  document.getElementById("zip-file").addEventListener("change", onZipChosen);
   document.getElementById("imp-all").addEventListener("click", () => setAllInclude(() => true));
   document.getElementById("imp-none").addEventListener("click", () => setAllInclude(() => false));
   document.getElementById("imp-matched").addEventListener("click", () =>
@@ -477,36 +586,108 @@ function wireImport() {
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
-    if (file) readFile(file);
+    if (file) onCsvChosen(file);
   });
 }
 
 function openImport() {
   importState.rows = [];
   importState.cancelled = false;
+  importState.images = null;
+  importState.csvText = "";
+  importState.csvName = "";
+  importState.parsed = false;
   document.getElementById("import-error").style.display = "none";
-  document.getElementById("import-pick").style.display = "block";
-  document.getElementById("import-review").style.display = "none";
   document.getElementById("import-confirm").disabled = true;
+  document.getElementById("import-continue").disabled = true;
   document.getElementById("csv-file").value = "";
+  document.getElementById("zip-file").value = "";
+  document.getElementById("csv-drop-label").textContent = "Choose a CSV file";
+  document.getElementById("filedrop").classList.remove("chosen");
+  resetZipStatus();
+  goStep(1);
   document.getElementById("import-dialog").showModal();
+}
+
+/** Switch the wizard between step 1 (files) and step 2 (review). */
+function goStep(n) {
+  importState.step = n;
+  document.getElementById("import-pick").style.display = n === 1 ? "block" : "none";
+  document.getElementById("import-review").style.display = n === 2 ? "block" : "none";
+  document.getElementById("import-back").classList.toggle("hidden", n !== 2);
+  document.getElementById("import-continue").classList.toggle("hidden", n !== 1);
+  document.getElementById("import-confirm").classList.toggle("hidden", n !== 2);
+  document.querySelectorAll("#import-steps .wstep").forEach((li) => {
+    const s = Number(li.dataset.step);
+    li.classList.toggle("active", s === n);
+    li.classList.toggle("done", s < n);
+  });
+}
+
+function resetZipStatus() {
+  document.getElementById("zip-status").replaceChildren(
+    "Attach a ", el("code", { text: ".zip" }),
+    " of images named by an ", el("strong", { text: "Image" }), " column in the CSV.",
+  );
+}
+
+/** Step 1: a CSV was chosen (picker or drop). Read it; don't advance yet. */
+function onCsvChosen(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    importState.csvText = String(reader.result || "");
+    importState.csvName = file.name || "members.csv";
+    importState.parsed = false;
+    importState.rows = [];
+    importState.cancelled = true; // stop any geocoding still running from a prior file
+    document.getElementById("import-error").style.display = "none";
+    document.getElementById("csv-drop-label").textContent = `✓ ${importState.csvName}`;
+    document.getElementById("filedrop").classList.add("chosen");
+    document.getElementById("import-continue").disabled = false;
+  };
+  reader.onerror = () => importError("Could not read that file.");
+  reader.readAsText(file);
+}
+
+async function onZipChosen(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const status = document.getElementById("zip-status");
+  status.textContent = "Reading zip…";
+  try {
+    importState.images = await readZip(await file.arrayBuffer());
+    const n = importState.images.size;
+    status.textContent = `✓ ${n} image${n === 1 ? "" : "s"} found — matched to the CSV’s Image column on the next step.`;
+    if (importState.parsed) renderImportRows(); // refresh 📷 badges if already reviewed
+  } catch (err) {
+    console.error("zip read failed", err);
+    importState.images = null;
+    status.textContent = "Couldn’t read that zip file.";
+  }
+}
+
+/** Step 1 → 2: parse the CSV (first time) and reveal the review table. */
+function onContinue() {
+  if (!importState.csvText) return;
+  if (!importState.parsed) {
+    const res = buildRows(importState.csvText);
+    if (!res.ok) { importError(res.error); return; }
+    importState.parsed = true;
+    importState.cancelled = false;
+    document.getElementById("import-error").style.display = "none";
+    renderImportRows();
+    goStep(2);
+    geocodeAll();
+    return;
+  }
+  // Returning from Back with rows already built: just reflect any zip change.
+  renderImportRows();
+  goStep(2);
 }
 
 function closeImport() {
   importState.cancelled = true;
   document.getElementById("import-dialog").close();
-}
-
-function onFileChosen(e) {
-  const file = e.target.files?.[0];
-  if (file) readFile(file);
-}
-
-function readFile(file) {
-  const reader = new FileReader();
-  reader.onload = () => startReview(String(reader.result || ""));
-  reader.onerror = () => importError("Could not read that file.");
-  reader.readAsText(file);
 }
 
 function importError(msg) {
@@ -515,21 +696,20 @@ function importError(msg) {
   box.style.display = "block";
 }
 
-function startReview(text) {
+/** Parse CSV text into review rows. Returns { ok, error? }. */
+function buildRows(text) {
   let parsed;
   try {
     parsed = parseCsvObjects(text);
   } catch {
-    importError("That doesn't look like a valid CSV file.");
-    return;
+    return { ok: false, error: "That doesn't look like a valid CSV file." };
   }
   const map = mapHeaders(parsed.headers); // header -> field
   const byField = {};
   for (const [header, field] of Object.entries(map)) byField[field] = header;
 
   if (!byField.name && !byField.location) {
-    importError("Couldn't find name or location columns in that CSV.");
-    return;
+    return { ok: false, error: "Couldn't find name or location columns in that CSV." };
   }
 
   importState.rows = parsed.rows.map((r) => {
@@ -550,13 +730,11 @@ function startReview(text) {
       lng: hasCoords ? lng : null,
       matchedLabel: hasCoords ? "From CSV coordinates" : "",
       state: hasCoords ? "matched" : "pending",
+      imageName: byField.image ? (r[byField.image] || "").trim() : "",
     };
   }).filter((r) => r.name || r.location);
 
-  document.getElementById("import-pick").style.display = "none";
-  document.getElementById("import-review").style.display = "block";
-  renderImportRows();
-  geocodeAll();
+  return { ok: true };
 }
 
 /** Build the "Resolved pin" cell for an import row. */
@@ -568,6 +746,17 @@ function pinCell(r) {
   // review / error: importable as a pending draft the member can fix via their link.
   const reason = r.state === "error" ? "Lookup failed" : "No confident match";
   return el("span", { class: "pin-warn", text: `${reason} — imports as pending` });
+}
+
+/** A small "photo" badge for an import row that references an image filename. */
+function photoBadge(r) {
+  if (!r.imageName) return null;
+  const found = importState.images && importState.images.has(r.imageName.split("/").pop());
+  return el("span", {
+    class: "pin-photo",
+    title: found ? `Photo: ${r.imageName}` : `Photo "${r.imageName}" not found in the zip`,
+    text: found ? " 📷" : " 📷⚠️",
+  });
 }
 
 function renderImportRows() {
@@ -583,7 +772,7 @@ function renderImportRows() {
 
     tbody.append(el("tr", { "data-i": i }, [
       el("td", { class: "col-check" }, [check]),
-      el("td", { text: r.name || "—" }),
+      el("td", {}, [r.name || "—", photoBadge(r)]),
       el("td", { text: r.location || "—" }),
       el("td", {}, [pinCell(r)]),
     ]));
@@ -706,14 +895,50 @@ async function confirmImport() {
     btn.textContent = "Import selected";
     return;
   }
+
+  // Attach any photos from the zip to the newly created members. `data.created`
+  // maps each accepted input row's index to its new public_id.
+  let photoCount = 0;
+  if (importState.images && importState.images.size && Array.isArray(data.created)) {
+    photoCount = await uploadImportImages(rows, data.created, btn);
+  }
+
   const pendingCount = members.filter((m) => m.status === "pending").length;
   closeImport();
   await refresh();
   const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
   flash("dash-ok",
     `Imported ${data.imported} member${data.imported === 1 ? "" : "s"}` +
+    (photoCount ? ` with ${photoCount} photo${photoCount === 1 ? "" : "s"}` : "") +
     (pendingCount ? `, ${pendingCount} held as pending (no location yet — send those members their edit link)` : "") +
     (skipped ? `; skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : "") + ".");
+}
+
+/**
+ * Upload images referenced by imported rows. `rows` is the array sent to the
+ * import endpoint (same order); `created` is the server's [{index, id}] map.
+ * Each referenced file is resized/compressed client-side before upload.
+ */
+async function uploadImportImages(rows, created, btn) {
+  let uploaded = 0;
+  let processed = 0;
+  for (const { index, id } of created) {
+    const r = rows[index];
+    if (!r || !r.imageName) continue;
+    const bytes = importState.images.get(r.imageName.split("/").pop());
+    processed++;
+    if (btn) btn.textContent = `Uploading photos… ${processed}`;
+    if (!bytes) continue;
+    try {
+      const { blob, width, height } = await compressImageToBlob(new Blob([bytes]));
+      const up = await uploadMemberImage(id, blob, { width, height });
+      if (up.ok) uploaded++;
+      else console.warn("import photo upload rejected", id, up.data);
+    } catch (err) {
+      console.warn("import photo failed", r.imageName, err);
+    }
+  }
+  return uploaded;
 }
 
 // --- Merge (de-duplication) ----------------------------------------------
@@ -730,7 +955,7 @@ const MERGE_FIELDS = [
   { key: "consent", label: "On map (opted in)", get: (m) => (m.consentPublic ? "Yes" : "No") },
 ];
 
-const mergeState = { records: [], primaryId: null, choices: {}, touched: new Set() };
+const mergeState = { records: [], primaryId: null, choices: {}, touched: new Set(), imageSource: "", imageTouched: false };
 
 function wireMerge() {
   document.getElementById("bulk-merge").addEventListener("click", openMerge);
@@ -759,6 +984,9 @@ function openMerge() {
   mergeState.touched = new Set();
   mergeState.choices = {};
   for (const f of MERGE_FIELDS) mergeState.choices[f.key] = records[0].id;
+  // Default the kept photo to the primary's (if it has one), else none.
+  mergeState.imageSource = records[0].imageUpdatedAt != null ? records[0].id : "";
+  mergeState.imageTouched = false;
   document.getElementById("merge-error").style.display = "none";
   renderMerge();
   document.getElementById("merge-dialog").showModal();
@@ -782,6 +1010,9 @@ function renderMerge() {
       for (const f of MERGE_FIELDS) {
         if (!mergeState.touched.has(f.key)) mergeState.choices[f.key] = m.id;
       }
+      if (!mergeState.imageTouched) {
+        mergeState.imageSource = m.imageUpdatedAt != null ? m.id : "";
+      }
       renderMerge();
     });
     keepGroup.append(el("label", { class: "merge-opt keep-opt", for: id }, [
@@ -790,6 +1021,34 @@ function renderMerge() {
     ]));
   }
   wrap.append(keepGroup);
+
+  // Profile photo: pick which record's photo the kept record should end up with
+  // (only records that actually have one), or "No photo". Shown only when at
+  // least one selected record has a photo.
+  const withPhoto = mergeState.records.filter((m) => m.imageUpdatedAt != null);
+  if (withPhoto.length) {
+    const photoGroup = el("div", { class: "merge-field" }, [
+      el("div", { class: "merge-flabel", text: "Profile photo" }),
+    ]);
+    const options = [
+      ...withPhoto.map((m) => ({ id: m.id, label: m.name || "—", url: memberImageUrl(m) })),
+      { id: "", label: "No photo", url: null },
+    ];
+    for (const o of options) {
+      const id = `m-photo-${o.id || "none"}`;
+      const radio = el("input", { type: "radio", name: "merge-photo", id });
+      radio.checked = mergeState.imageSource === o.id;
+      radio.addEventListener("change", () => {
+        mergeState.imageSource = o.id;
+        mergeState.imageTouched = true;
+      });
+      const children = [radio];
+      if (o.url) children.push(el("span", { class: "admin-thumb" }, [el("img", { src: o.url, alt: "" })]));
+      children.push(el("span", { class: "merge-opt-val", text: o.label }));
+      photoGroup.append(el("label", { class: "merge-opt", for: id }, children));
+    }
+    wrap.append(photoGroup);
+  }
 
   for (const f of MERGE_FIELDS) {
     const group = el("div", { class: "merge-field" }, [
@@ -849,7 +1108,7 @@ async function confirmMerge() {
   btn.textContent = "Merging…";
   const { ok, data } = await api("/api/admin/merge", {
     method: "POST",
-    body: { primaryId: mergeState.primaryId, mergeIds, fields },
+    body: { primaryId: mergeState.primaryId, mergeIds, fields, imageSource: mergeState.imageSource },
   });
   btn.disabled = false;
   btn.textContent = "Merge records";

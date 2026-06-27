@@ -1,4 +1,4 @@
-import { api, configureLeafletIcons, debounce, el, getConfig, readEditCredential } from "/common.js";
+import { api, configureLeafletIcons, createPhotoField, debounce, deleteMemberImage, el, getConfig, memberImageUrl, readEditCredential, uploadMemberImage } from "/common.js";
 
 const L = window.L;
 configureLeafletIcons(L);
@@ -7,6 +7,7 @@ const params = new URLSearchParams(location.search);
 const publicId = params.get("id") || "";
 const credential = readEditCredential();
 let CONFIG = {};
+let photoField = null;
 
 const pick = { map: null, marker: null, picked: null };
 
@@ -117,6 +118,16 @@ function showEditView(m) {
   document.getElementById("email").value = m.email || "";
   document.getElementById("consent_public").checked = !!m.consentPublic;
   document.getElementById("consent-note").style.display = "block";
+
+  photoField = createPhotoField({ hint: "Square works best. JPG, PNG or WebP — resized automatically." });
+  photoField.onError((msg) => {
+    const errBox = document.getElementById("edit-error");
+    errBox.textContent = msg;
+    errBox.style.display = "block";
+  });
+  document.getElementById("photo-holder").append(photoField.element);
+  loadExistingPhoto(m);
+
   showStatusBanner(m);
 
   initPickMap(m.lat, m.lng);
@@ -125,6 +136,27 @@ function showEditView(m) {
   wireGeocode();
   document.getElementById("edit-form").addEventListener("submit", onSave);
   document.getElementById("delete-btn").addEventListener("click", onDelete);
+}
+
+/**
+ * Show the member's existing photo in the picker. The image endpoint requires
+ * the edit token for a not-yet-public entry, and an <img> tag can't send a
+ * header — so fetch it with the token and hand the picker a local blob URL.
+ */
+async function loadExistingPhoto(m) {
+  if (!photoField) return;
+  if (m.imageUpdatedAt == null) { photoField.setExisting(null); return; }
+  try {
+    const res = await fetch(memberImageUrl(m), {
+      headers: { "X-Edit-Token": credential },
+      credentials: "same-origin",
+    });
+    if (!res.ok) { photoField.setExisting(null); return; }
+    photoField.setExisting(URL.createObjectURL(await res.blob()));
+  } catch (err) {
+    console.warn("could not load existing photo", err);
+    photoField.setExisting(null);
+  }
 }
 
 function initPickMap(lat, lng) {
@@ -226,6 +258,30 @@ async function onSave(e) {
       errBox.style.display = "block";
       return;
     }
+
+    // Persist any profile-photo change (added/replaced or removed). The preview
+    // already reflects the member's choice (a local blob, or the empty
+    // placeholder), so there's no need to reload it from the server — which the
+    // member couldn't do for a pending entry anyway, since an <img> tag can't
+    // send the edit token.
+    const photo = photoField ? photoField.getState() : null;
+    if (photo && (photo.blob || photo.removed)) {
+      try {
+        if (photo.blob) {
+          const up = await uploadMemberImage(publicId, photo.blob, {
+            editToken: credential, width: photo.width, height: photo.height,
+          });
+          if (!up.ok) throw new Error(up.data.error || "photo upload failed");
+        } else if (photo.removed) {
+          await deleteMemberImage(publicId, { editToken: credential });
+        }
+      } catch (err) {
+        console.error("photo save failed", err);
+        errBox.textContent = "Your details were saved, but the photo couldn’t be updated. Please try again.";
+        errBox.style.display = "block";
+      }
+    }
+
     // Reflect the saved entry's real visibility — never claim it's "live" when
     // it's actually pending approval or hidden.
     if (data.member) showStatusBanner(data.member);
