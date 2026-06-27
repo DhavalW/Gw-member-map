@@ -406,10 +406,16 @@ function showSuccess(data) {
   const dialog = document.getElementById("success-dialog");
   document.getElementById("edit-link").value = data.editUrl || "";
   document.getElementById("goto-edit").href = data.editUrl || "#";
+  const title = document.getElementById("success-title");
   const msg = document.getElementById("success-msg");
-  msg.textContent = data.moderated
-    ? "Thanks! Your entry will appear once an admin approves it."
-    : "Thanks for joining — your pin is now on the map.";
+  if (data.moderated) {
+    title.textContent = "Thanks — you're almost there! 🎉";
+    msg.textContent =
+      "Your entry has been submitted for review and will appear on the map once an admin approves it.";
+  } else {
+    title.textContent = "You're on the map! 🎉";
+    msg.textContent = "Thanks for joining — your pin is now on the map.";
+  }
   dialog.showModal();
 }
 

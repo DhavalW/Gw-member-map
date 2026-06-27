@@ -195,6 +195,52 @@ export async function deleteMember(env: Env, publicId: string): Promise<void> {
 }
 
 /**
+ * Merge several records into one (admin de-duplication). The `primaryId` record
+ * is updated with the chosen merged values and kept (its public_id + edit token
+ * survive); every id in `sourceIds` is deleted. Both steps run in a single
+ * `batch()` so the merge is atomic — callers must ensure `sourceIds` excludes
+ * the primary id.
+ */
+export async function mergeMembers(
+  env: Env,
+  primaryId: string,
+  sourceIds: string[],
+  m: UpdateMember & { status: string; consent_public: number },
+): Promise<void> {
+  const now = Date.now();
+  const stmts = [
+    env.DB.prepare(
+      `UPDATE members SET
+         display_name = ?, email = ?, location_name = ?, lat = ?, lng = ?,
+         bio = ?, contact_label = ?, contact_url = ?, status = ?,
+         consent_public = ?, updated_at = ?
+       WHERE public_id = ?`,
+    ).bind(
+      m.display_name,
+      m.email,
+      m.location_name,
+      m.lat,
+      m.lng,
+      m.bio,
+      m.contact_label,
+      m.contact_url,
+      m.status,
+      m.consent_public,
+      now,
+      primaryId,
+    ),
+  ];
+  if (sourceIds.length > 0) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM members WHERE public_id IN (${placeholders(sourceIds.length)})`,
+      ).bind(...sourceIds),
+    );
+  }
+  await env.DB.batch(stmts);
+}
+
+/**
  * Replace a member's edit-token hash. Used by the admin "copy edit link"
  * action to mint a fresh, shareable edit link without ever storing the raw
  * token. The previous link stops working once a new one is generated.

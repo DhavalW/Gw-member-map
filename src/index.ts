@@ -25,6 +25,7 @@ import {
   insertMember,
   listAllMembers,
   listPublicMembers,
+  mergeMembers,
   setEditTokenHash,
   toOwner,
   updateMember,
@@ -91,7 +92,10 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
       appName: env.APP_NAME || "Generalist World Member Map",
       communityName: env.COMMUNITY_NAME || "Generalist World",
       communityUrl: env.COMMUNITY_URL || "https://generalist.world/",
-      moderationEnabled: env.MODERATION_ENABLED === "true",
+      // Moderation is always on: every member submission is held as "pending"
+      // until an admin publishes it. The legacy MODERATION_ENABLED toggle no
+      // longer disables this (kept only for backwards compatibility).
+      moderationEnabled: true,
       adminConfigured: isAdminConfigured(env),
       turnstileSiteKey: env.TURNSTILE_SITE_KEY || "",
     });
@@ -173,6 +177,10 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   if (pathname === "/api/admin/bulk" && method === "POST") {
     return handleAdminBulk(request, env);
   }
+  // --- Admin: merge several records into one (de-duplication) ---
+  if (pathname === "/api/admin/merge" && method === "POST") {
+    return handleAdminMerge(request, env);
+  }
   // --- Admin: CSV import (rows already geocoded client-side) ---
   if (pathname === "/api/admin/import" && method === "POST") {
     return handleAdminImport(request, env);
@@ -191,9 +199,13 @@ async function isAdmin(request: Request, env: Env): Promise<boolean> {
   return verifyAdminSession(cookies[ADMIN_COOKIE], env.SESSION_SECRET);
 }
 
-/** Extract the member credential from header or query string. */
-function memberCredential(request: Request, url: URL): string | null {
-  return request.headers.get("X-Edit-Token") || url.searchParams.get("token") || null;
+/**
+ * Extract the member credential. Only the `X-Edit-Token` header is accepted —
+ * never a query-string parameter — so the bearer token can't leak through
+ * server logs, the browser history, or the `Referer` header.
+ */
+function memberCredential(request: Request): string | null {
+  return request.headers.get("X-Edit-Token") || null;
 }
 
 /**
@@ -204,12 +216,11 @@ function memberCredential(request: Request, url: URL): string | null {
 async function authorizeMember(
   request: Request,
   env: Env,
-  url: URL,
   row: MemberRow,
 ): Promise<{ ok: boolean; admin: boolean }> {
   if (await isAdmin(request, env)) return { ok: true, admin: true };
 
-  const cred = memberCredential(request, url);
+  const cred = memberCredential(request);
   if (!cred) return { ok: false, admin: false };
 
   // Signed member session (contains a dot) issued by the magic-link flow.
@@ -301,7 +312,10 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   const publicId = randomToken(9);
   const editToken = randomToken(32);
   const editTokenHash = await sha256Hex(editToken);
-  const status = env.MODERATION_ENABLED === "true" ? "pending" : "published";
+  // Every member-submitted entry starts as "pending" and is never shown
+  // publicly until an admin publishes it. Members can never self-publish; the
+  // status is set here on the server and ignored from the request body.
+  const status = "pending";
 
   await insertMember(env, {
     public_id: publicId,
@@ -335,8 +349,7 @@ async function handleGetOne(request: Request, env: Env, publicId: string): Promi
   const row = await getByPublicId(env, publicId);
   if (!row) return json({ error: "Not found" }, 404);
 
-  const url = new URL(request.url);
-  const auth = await authorizeMember(request, env, url, row);
+  const auth = await authorizeMember(request, env, row);
   if (!auth.ok) return json({ error: "Unauthorized" }, 401);
 
   return json({ member: toOwner(row) });
@@ -348,8 +361,7 @@ async function handleUpdate(request: Request, env: Env, publicId: string): Promi
   const row = await getByPublicId(env, publicId);
   if (!row) return json({ error: "Not found" }, 404);
 
-  const url = new URL(request.url);
-  const auth = await authorizeMember(request, env, url, row);
+  const auth = await authorizeMember(request, env, row);
   if (!auth.ok) return json({ error: "Unauthorized" }, 401);
 
   const body = await readJson(request);
@@ -380,6 +392,10 @@ async function handleUpdate(request: Request, env: Env, publicId: string): Promi
       consent_public: v.consent_public ? 1 : 0,
     });
   } else {
+    // Member self-edit. `updateMember` deliberately never writes the `status`
+    // column, so a member can edit their details and toggle their public
+    // opt-in but can NEVER change moderation status (e.g. self-publish a
+    // pending entry). Only an admin can move an entry to "published".
     await updateMember(env, publicId, {
       display_name: v.display_name,
       email: v.email,
@@ -403,8 +419,7 @@ async function handleDelete(request: Request, env: Env, publicId: string): Promi
   const row = await getByPublicId(env, publicId);
   if (!row) return json({ error: "Not found" }, 404);
 
-  const url = new URL(request.url);
-  const auth = await authorizeMember(request, env, url, row);
+  const auth = await authorizeMember(request, env, row);
   if (!auth.ok) return json({ error: "Unauthorized" }, 401);
 
   await deleteMember(env, publicId);
@@ -469,6 +484,75 @@ async function handleAdminBulk(request: Request, env: Env): Promise<Response> {
       return json({ error: "Unknown action." }, 400);
   }
   return json({ ok: true, count: ids.length });
+}
+
+/**
+ * Admin: merge several member records into one (de-duplication). The admin
+ * picks a "primary" record to keep (it retains its public_id and edit link)
+ * plus the final value for each field; the other selected records are deleted.
+ * The update + deletes run in a single D1 batch so the operation is atomic.
+ */
+async function handleAdminMerge(request: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
+  if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
+
+  const body = await readJson(request);
+  const primaryId = typeof body?.primaryId === "string" ? body.primaryId : "";
+  const rawMergeIds = Array.isArray(body?.mergeIds)
+    ? body!.mergeIds.filter((x): x is string => typeof x === "string")
+    : [];
+  if (!primaryId) return json({ error: "No record selected to keep." }, 400);
+
+  // De-duplicate and never delete the record we're keeping.
+  const sourceIds = [...new Set(rawMergeIds)].filter((id) => id !== primaryId);
+  if (sourceIds.length === 0) {
+    return json({ error: "Select at least two records to merge." }, 400);
+  }
+  if (sourceIds.length > 100) {
+    return json({ error: "Too many records selected to merge at once." }, 400);
+  }
+
+  const primary = await getByPublicId(env, primaryId);
+  if (!primary) return json({ error: "Record to keep was not found." }, 404);
+
+  // The merged field values come from the admin UI (already chosen per field).
+  const fields = (body?.fields ?? {}) as Record<string, unknown>;
+  const result = validateSubmission(
+    {
+      display_name: fields.display_name,
+      location_name: fields.location_name,
+      bio: fields.bio,
+      contact: fields.contact,
+      email: fields.email,
+      lat: fields.lat,
+      lng: fields.lng,
+      consent_public: fields.consent_public === true,
+    },
+    { requireConsent: false },
+  );
+  if (!result.ok || !result.value) {
+    return json({ error: "Validation failed", fields: result.errors }, 400);
+  }
+  const v = result.value;
+  // Status is admin-controlled and whitelisted; fall back to the kept record's.
+  const status = ["published", "pending", "hidden"].includes(String(fields.status))
+    ? String(fields.status)
+    : primary.status;
+
+  await mergeMembers(env, primaryId, sourceIds, {
+    display_name: v.display_name,
+    email: v.email,
+    location_name: v.location_name,
+    lat: v.lat,
+    lng: v.lng,
+    bio: v.bio,
+    contact_label: v.contact_label,
+    contact_url: v.contact_url,
+    status,
+    consent_public: v.consent_public ? 1 : 0,
+  });
+
+  return json({ ok: true, primaryId, merged: sourceIds.length });
 }
 
 /**

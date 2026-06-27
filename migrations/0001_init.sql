@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS members (
   -- Public opt-in. Entries are only ever shown publicly when this is 1.
   consent_public  INTEGER NOT NULL DEFAULT 0,
 
-  -- 'published' | 'pending' | 'hidden'
-  status          TEXT NOT NULL DEFAULT 'published',
+  -- 'published' | 'pending' | 'hidden'. New entries default to 'pending';
+  -- only an admin can publish them.
+  status          TEXT NOT NULL DEFAULT 'pending',
 
   -- SHA-256 hex of the member's secret edit token. The raw token is shown to
   -- the member once and never stored.

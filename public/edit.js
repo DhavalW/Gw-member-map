@@ -42,6 +42,54 @@ function show(id) {
   }
 }
 
+/**
+ * Describe an entry's current public visibility, so the member always knows
+ * whether their entry is awaiting approval, live, or hidden.
+ */
+function visibilityState(m) {
+  if (m.status === "pending") {
+    return {
+      kind: "info",
+      text: "Your entry is awaiting admin approval — it isn’t shown on the map yet. You can keep editing in the meantime.",
+    };
+  }
+  if (m.status === "hidden") {
+    return {
+      kind: "warn",
+      text: "An admin has hidden your entry, so it isn’t shown publicly right now.",
+    };
+  }
+  // status === "published"
+  if (m.consentPublic) {
+    return { kind: "ok", text: "Your entry is approved and live on the map." };
+  }
+  return {
+    kind: "info",
+    text: "Your entry is approved, but it’s hidden from the map because public sharing is turned off below.",
+  };
+}
+
+function showStatusBanner(m) {
+  const banner = document.getElementById("status-banner");
+  const s = visibilityState(m);
+  banner.className = `notice ${s.kind}`;
+  banner.textContent = s.text;
+  banner.style.display = "block";
+}
+
+/** Status-aware confirmation shown after a successful save. */
+function saveMessage(m) {
+  if (!m) return "Saved! Your changes have been recorded.";
+  if (m.status === "pending") {
+    return "Saved! Your entry is awaiting admin approval and will appear on the map once approved.";
+  }
+  if (m.status === "hidden") {
+    return "Saved! Note: an admin has hidden your entry, so it isn’t shown publicly.";
+  }
+  if (m.consentPublic) return "Saved! Your changes are live on the map.";
+  return "Saved! Your entry is saved but hidden, because public sharing is turned off.";
+}
+
 function showRequestView(message) {
   show("request-view");
   if (message) {
@@ -60,6 +108,7 @@ function showEditView(m) {
   document.getElementById("email").value = m.email || "";
   document.getElementById("consent_public").checked = !!m.consentPublic;
   document.getElementById("consent-note").style.display = "block";
+  showStatusBanner(m);
 
   initPickMap(m.lat, m.lng);
   pick.picked = { lat: m.lat, lng: m.lng };
@@ -168,7 +217,10 @@ async function onSave(e) {
       errBox.style.display = "block";
       return;
     }
-    okBox.textContent = "Saved! Your changes are live.";
+    // Reflect the saved entry's real visibility — never claim it's "live" when
+    // it's actually pending approval or hidden.
+    if (data.member) showStatusBanner(data.member);
+    okBox.textContent = saveMessage(data.member);
     okBox.style.display = "block";
   } catch {
     errBox.textContent = "Network error. Please try again.";

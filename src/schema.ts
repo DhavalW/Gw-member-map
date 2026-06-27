@@ -23,7 +23,7 @@ const SCHEMA_STATEMENTS: string[] = [
      contact_label   TEXT NOT NULL DEFAULT '',
      contact_url     TEXT NOT NULL DEFAULT '',
      consent_public  INTEGER NOT NULL DEFAULT 0,
-     status          TEXT NOT NULL DEFAULT 'published',
+     status          TEXT NOT NULL DEFAULT 'pending',
      edit_token_hash TEXT NOT NULL,
      ip_hash         TEXT,
      created_at      INTEGER NOT NULL,
