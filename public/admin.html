@@ -89,6 +89,9 @@
         <span class="spacer"></span>
         <button class="btn small" id="import-btn">Import CSV</button>
         <button class="btn small" id="export-btn">Export CSV</button>
+        <label class="export-photos" title="Download member photos alongside the CSV, bundled as a .zip">
+          <input type="checkbox" id="export-photos" /> Photos (.zip)
+        </label>
         <button class="btn small" id="settings-btn">Settings</button>
         <button class="btn small" id="logout-btn">Sign out</button>
       </div>
@@ -150,6 +153,9 @@
           <div class="hint">Generating a new link invalidates any link the member had before.</div>
         </div>
 
+        <div class="field" id="f-photo"><label>Profile photo</label>
+          <div id="admin-photo-holder"></div></div>
+
         <div class="field" id="f-display_name"><label for="a-name">Name</label>
           <input type="text" id="a-name" maxlength="80" /><div class="err" data-err></div></div>
         <div class="field" id="f-location_name"><label for="a-loc">Location</label>
@@ -200,11 +206,39 @@
 
       <!-- Step 1: choose a file -->
       <div id="import-pick">
-        <p>Upload a CSV exported from this tool, or the raw sign-up sheet. Columns are
-          detected automatically (name, location, contact, email, status). Each location
-          is geocoded to a map pin — you can review matches before importing. Rows that
-          don’t resolve can still be imported as <strong>pending drafts</strong>; copy
-          their edit link afterwards so the member can set their location.</p>
+        <p>Upload a CSV exported from this tool, or your raw sign-up sheet. Column
+          headers are detected automatically and each location is geocoded to a map
+          pin you can review before importing. Rows that don’t resolve can still be
+          imported as <strong>pending drafts</strong> — copy their edit link afterwards
+          so the member can set their own location.</p>
+
+        <details class="import-help">
+          <summary>What should the CSV look like?</summary>
+          <div class="import-help-body">
+            <p>A header row plus one row per member. Headers are matched flexibly
+              (case-insensitive), so your sign-up sheet’s wording usually works as-is.
+              Recognised columns:</p>
+            <ul>
+              <li><strong>Name</strong> <span class="muted">(required)</span> — the member’s display name.</li>
+              <li><strong>Location</strong> — city / place; geocoded to a pin. You can
+                instead provide <strong>Latitude</strong> &amp; <strong>Longitude</strong> columns to skip geocoding.</li>
+              <li><strong>Contact</strong> — a link, email or @handle.</li>
+              <li><strong>Email</strong> — kept private (never shown on the map).</li>
+              <li><strong>Bio</strong> — a short description.</li>
+              <li><strong>Status</strong> — <code>published</code>, <code>pending</code> or <code>hidden</code> (defaults to published).</li>
+              <li><strong>Consent</strong> — <code>Yes</code>/<code>No</code> for public visibility (defaults to Yes).</li>
+              <li><strong>Image</strong> — a filename (e.g. <code>jane.jpg</code>) when importing photos; see below.</li>
+            </ul>
+            <p class="muted">Tip: export the current directory first to see the exact
+              column layout this tool produces.</p>
+            <p><strong>Importing photos (optional):</strong> tick the photos box below and
+              attach a <code>.zip</code> of images. Add an <strong>Image</strong> column to your
+              CSV whose value is each member’s filename inside the zip
+              (e.g. <code>jane.jpg</code>, or <code>images/jane.jpg</code> — folders are ignored).
+              Photos are automatically resized and compressed on import.</p>
+          </div>
+        </details>
+
         <label class="filedrop" id="filedrop">
           <input type="file" id="csv-file" accept=".csv,text/csv" hidden />
           <strong>Choose a CSV file</strong>
@@ -214,6 +248,12 @@
 
       <!-- Step 2: review -->
       <div id="import-review" class="hidden">
+        <div class="import-photos-bar">
+          <strong>Profile photos</strong> <span class="muted">(optional)</span>
+          <label class="btn small" for="zip-file">Choose photos .zip</label>
+          <input type="file" id="zip-file" accept=".zip,application/zip" hidden />
+          <span class="muted" id="zip-status">Attach a .zip to import photos referenced by the CSV’s <strong>Image</strong> column.</span>
+        </div>
         <div class="import-progress" id="import-progress">
           <div class="bar"><div class="bar-fill" id="geo-bar"></div></div>
           <span id="geo-status" class="muted"></span>

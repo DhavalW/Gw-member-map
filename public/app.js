@@ -1,4 +1,4 @@
-import { api, configureLeafletIcons, contactNode, debounce, debugToggle, el, getConfig, installDebugOverlay } from "/common.js";
+import { api, configureLeafletIcons, contactNode, createPhotoField, debounce, debugToggle, el, getConfig, installDebugOverlay, memberImageUrl, uploadMemberImage } from "/common.js";
 import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — sample pins, hidden unless toggled on in the debug panel
 
 const L = window.L;
@@ -11,6 +11,7 @@ let showDemo = localStorage.getItem(DEMO_KEY) === "1"; // off by default
 let CONFIG = {};
 let MEMBERS = [];
 let turnstileToken = "";
+let photoField = null; // profile-photo picker for the sign-up form
 
 // Debug-panel switch to overlay sample/demo pins. Off by default; persists.
 overlay.addControl(
@@ -45,10 +46,18 @@ function nameHash(name) {
   return h;
 }
 
-function avatarEl(name, extraClass) {
+function avatarEl(m, extraClass) {
+  const name = (m && m.name) || "";
+  const cls = `avatar${extraClass ? " " + extraClass : ""}`;
+  const url = memberImageUrl(m);
+  if (url) {
+    return el("div", { class: `${cls} has-img` }, [
+      el("img", { src: url, alt: name, loading: "lazy" }),
+    ]);
+  }
   const initials = name.trim().split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
   const color = AVATAR_COLORS[nameHash(name) % AVATAR_COLORS.length];
-  return el("div", { class: `avatar${extraClass ? " " + extraClass : ""}`, style: `background:${color}` }, [initials]);
+  return el("div", { class: cls, style: `background:${color}` }, [initials]);
 }
 
 // --- Boot -----------------------------------------------------------------
@@ -110,7 +119,7 @@ function renderMembers(members) {
 
 function buildPopup(m) {
   const header = el("div", { class: "popup-header" }, [
-    avatarEl(m.name, "av-lg"),
+    avatarEl(m, "av-lg"),
     el("div", { class: "popup-meta" }, [
       el("div", { class: "name", text: m.name }),
       el("div", { class: "loc", text: m.location }),
@@ -132,7 +141,7 @@ function renderList(members) {
   }
   for (const m of members) {
     const item = el("button", { class: "member-item", role: "listitem", type: "button" }, [
-      avatarEl(m.name, "av-sm"),
+      avatarEl(m, "av-sm"),
       el("div", { class: "member-info" }, [
         el("div", { class: "name", text: m.name }),
         el("div", { class: "loc", text: m.location }),
@@ -170,6 +179,12 @@ function wireForm() {
   const dialog = document.getElementById("form-dialog");
   const open = document.getElementById("open-form");
   const form = document.getElementById("member-form");
+
+  // Profile-photo picker (optional). Processed (resized + compressed) in the
+  // browser; uploaded after the entry is created, once we have its edit token.
+  photoField = createPhotoField({ hint: "Square works best. JPG, PNG or WebP — resized automatically." });
+  photoField.onError((msg) => showFormError(msg));
+  document.getElementById("photo-holder").append(photoField.element);
 
   open.addEventListener("click", () => {
     resetFormErrors(); // never reopen with a stale (or blank) error showing
@@ -371,6 +386,24 @@ async function onSubmit(e) {
       showFormError(data.error);
       return;
     }
+
+    // Upload the optional photo now that we have the entry's edit token. A
+    // failed upload shouldn't lose the (already created) entry — just warn.
+    const photo = photoField ? photoField.getState() : null;
+    if (photo && photo.blob && data.id && data.editToken) {
+      submitBtn.textContent = "Uploading photo…";
+      try {
+        const up = await uploadMemberImage(data.id, photo.blob, {
+          editToken: data.editToken,
+          width: photo.width,
+          height: photo.height,
+        });
+        if (!up.ok) console.warn("photo upload rejected", up.data);
+      } catch (err) {
+        console.error("photo upload failed", err);
+      }
+    }
+
     document.getElementById("form-dialog").close();
     showSuccess(data);
     await loadMembers();
@@ -388,6 +421,7 @@ function wireSuccess() {
   document.getElementById("close-success").addEventListener("click", () => {
     document.getElementById("success-dialog").close();
     document.getElementById("member-form").reset();
+    if (photoField) photoField.reset();
     resetPick();
   });
   document.getElementById("copy-link").addEventListener("click", async () => {

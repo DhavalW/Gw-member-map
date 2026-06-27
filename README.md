@@ -21,8 +21,16 @@ site runs under a strict Content-Security-Policy.
 ## Features
 
 - **Opt-in submission form** — name, city/location, short bio, a "how to
-  connect" link/handle, and a **required public-consent checkbox**. Nothing is
-  shown publicly unless the member ticks the box.
+  connect" link/handle, an optional **profile photo**, and a **required
+  public-consent checkbox**. Nothing is shown publicly unless the member ticks
+  the box.
+- **Profile photos** — members can add a photo when they sign up, and add,
+  replace or remove it later from their edit link; admins can do the same from
+  the dashboard. Images are **resized, square-cropped and compressed in the
+  browser** to a small web-optimised avatar (WebP, JPEG fallback) before upload,
+  so delivery stays fast and the database small. Photos are served with
+  long-lived immutable caching and are **deleted automatically** when an entry is
+  deleted or merged.
 - **Pick your spot** — type a place (geocoded via OpenStreetMap Nominatim,
   proxied through the Worker), choose a match, or click/drag a pin on the map.
 - **Live world map** — pins **cluster** when zoomed out, with a **searchable
@@ -43,7 +51,10 @@ site runs under a strict Content-Security-Policy.
 - **Bulk CSV import / export / edit** — import the sign-up sheet (columns are
   auto-detected and locations geocoded to pins for review before import),
   export the directory, and apply status/visibility/merge/delete actions to many
-  members at once with select-all / select-none shortcuts.
+  members at once with select-all / select-none shortcuts. **Profile photos are
+  optional in bulk too**: export them alongside the CSV as a single `.zip`, or
+  import them by attaching a `.zip` and referencing each file from an `Image`
+  column in the CSV. The import dialog explains the expected CSV format inline.
 - **Demo data toggle** — sample pins are hidden by default and can be switched
   on from the on-screen Debug panel for previewing the map.
 - **Security baked in** (see [Security](#security)).
@@ -70,9 +81,10 @@ well inside the free tier (see the scaling notes below).
 | `src/security.ts`             | CSP/headers, hashing, HMAC sessions, CSRF, escaping |
 | `src/settings.ts`             | Dashboard-configurable branding/integration settings |
 | `src/validate.ts`             | Input validation + contact normalisation        |
-| `src/db.ts`                   | D1 queries (parameterised)                      |
+| `src/db.ts`                   | D1 queries (parameterised), incl. profile-image storage |
 | `src/geocode.ts`              | Nominatim forward-geocoding proxy               |
 | `public/`                     | Front-end (map, form, edit, admin) + vendored Leaflet |
+| `public/zip.js`               | Dependency-free zip read/write for the photos bundle |
 | `public/_headers`             | Security/cache headers for CDN-served static assets |
 | `migrations/`                 | D1 schema migrations                            |
 
@@ -302,10 +314,21 @@ screenshots. `.dev.vars` is git-ignored for exactly this reason.
 
 `members` (one row per submission): opaque `public_id`, name, optional private
 `email`, `location_name` + `lat`/`lng`, `bio`, `contact_label`/`contact_url`,
-`consent_public`, moderation `status`, `edit_token_hash`, salted `ip_hash`, and
-timestamps.
+`consent_public`, moderation `status`, `edit_token_hash`, salted `ip_hash`,
+`image_updated_at` (a "has photo" flag + cache-busting version, NULL when none),
+and timestamps.
 
 Public visibility requires `status = 'published'` **and** `consent_public = 1`.
+
+`member_images` (zero or one row per member, keyed by `public_id`): the
+compressed avatar `bytes` (a BLOB) plus `content_type`, dimensions and `size`.
+Kept in a **separate table** so the map's member-list queries never pull image
+data. The image API (`/api/members/:id/image`) serves a member's photo —
+publicly and immutably-cached for published, opted-in members; privately and
+owner/admin-only otherwise. Rows are removed explicitly on delete and merge, so
+no orphaned blobs are left behind. Images are stored in D1 (rather than R2) to
+preserve the project's zero-config, auto-provisioning deploy — there is no extra
+bucket to create.
 
 `settings` (key/value): dashboard-configurable branding + integration overrides
 (see [Dashboard settings](#dashboard-configurable-settings)).
