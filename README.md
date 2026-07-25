@@ -158,6 +158,32 @@ After the first deploy, set any **optional** secrets you want (e.g. Turnstile)
 from the table below — in the dashboard under **Workers & Pages → your Worker →
 Settings → Variables and Secrets**, or with `wrangler secret put <NAME>`.
 
+### Your copy keeps itself up to date (auto-sync)
+
+The repo ships with a GitHub Actions workflow
+([`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml))
+that travels with every clone. In your copy it runs every 6 hours, pulls the
+latest `main` from this upstream repo, and pushes it to your clone — and since
+Workers Builds redeploys on every push, **your deployment updates
+automatically** whenever this project does. You never have to maintain or
+manually update your copy.
+
+Details worth knowing:
+
+- **Run it on demand** from your clone's **Actions → Sync from upstream →
+  Run workflow** (e.g. right after this repo announces a fix).
+- **Local changes are safe.** If you've committed your own tweaks, the sync
+  merges upstream in (upstream wins conflicting lines). If a merge can't be
+  done automatically, the run fails visibly rather than discarding your work.
+- **Workflow-file changes are the one exception**: GitHub forbids the default
+  Actions token from pushing changes under `.github/workflows/`. If upstream
+  edits a workflow, either copy that change over once by hand, or add a
+  fine-grained PAT (Contents + Workflows read/write on your clone) as a
+  repository secret named `SYNC_TOKEN`.
+- **After ~60 quiet days** GitHub pauses scheduled workflows and emails you;
+  one click in the Actions tab re-enables it.
+- **To opt out**, delete `.github/workflows/sync-upstream.yml` from your clone.
+
 ### Connect an existing repo via the dashboard
 
 If you'd rather connect this repo manually (**Workers & Pages → Create → Workers

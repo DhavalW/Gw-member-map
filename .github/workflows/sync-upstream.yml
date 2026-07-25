@@ -1,0 +1,93 @@
+# Keeps clones of this repo up to date with the upstream project.
+#
+# This file ships inside the repo on purpose: when someone stands up their own
+# copy (e.g. via the "Deploy to Cloudflare" button, which clones the repo into
+# their GitHub account), this workflow comes along for the ride. On a schedule
+# it fetches the upstream main branch and pushes it into the clone's default
+# branch. That push triggers the clone's own Cloudflare Workers Builds CI/CD,
+# so the deployment updates automatically too — no access to the clone's
+# GitHub account or Cloudflare account is ever required.
+#
+# On the upstream repo itself this workflow is a no-op.
+#
+# Notes for clone owners:
+#   - Run it on demand from the Actions tab ("Run workflow").
+#   - If you commit your own changes to the clone, they are preserved: the sync
+#     merges upstream in, and upstream wins any conflicting lines. If a merge
+#     is impossible (e.g. modify/delete conflict), the run fails loudly instead
+#     of discarding your work — resolve manually, then sync resumes.
+#   - Exception: changes to files under .github/workflows/ cannot be pushed by
+#     the default Actions token. If upstream changes a workflow file, this run
+#     will fail; either copy the change over manually, or create a fine-grained
+#     PAT with "Contents: read/write" + "Workflows: read/write" on your clone
+#     and save it as a repository secret named SYNC_TOKEN.
+#   - GitHub pauses scheduled workflows after ~60 days without repository
+#     activity; if you get that email, one click in the Actions tab re-enables
+#     it.
+#   - To opt out of auto-updates entirely, delete this file from your clone.
+
+name: Sync from upstream
+
+on:
+  schedule:
+    - cron: '23 */6 * * *' # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: DhavalW/Gw-member-map
+  UPSTREAM_BRANCH: main
+
+jobs:
+  sync:
+    # Guard for the common case; the script below re-checks case-insensitively.
+    if: github.repository != 'DhavalW/Gw-member-map'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so merge-base/fast-forward checks work.
+          fetch-depth: 0
+          # SYNC_TOKEN is optional — only needed to sync workflow-file changes.
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Merge upstream and push
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REPOSITORY,,}" = "${UPSTREAM_REPO,,}" ]; then
+            echo "This is the upstream repo itself — nothing to sync."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "${UPSTREAM_BRANCH}"
+
+          if git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" HEAD; then
+            echo "Already up to date with upstream/${UPSTREAM_BRANCH}."
+            exit 0
+          fi
+
+          if git merge --ff-only "upstream/${UPSTREAM_BRANCH}" 2>/dev/null; then
+            echo "Fast-forwarded to upstream/${UPSTREAM_BRANCH}."
+          else
+            echo "Clone has local commits — merging upstream (upstream wins conflicting lines)."
+            if ! git merge --no-edit -X theirs "upstream/${UPSTREAM_BRANCH}"; then
+              git merge --abort || true
+              echo "::error::Could not merge upstream automatically (likely a modify/delete conflict with local commits). Merge upstream/${UPSTREAM_BRANCH} manually in your clone, then this workflow will resume syncing."
+              exit 1
+            fi
+          fi
+
+          # GITHUB_REF_NAME is the clone's default branch on schedule/dispatch runs.
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "Pushed update to ${GITHUB_REF_NAME} — Cloudflare Workers Builds will redeploy from this push."
