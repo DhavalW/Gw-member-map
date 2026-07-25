@@ -24,6 +24,6 @@ SESSION_SECRET=""
 # Uncomment and fill in only the features you want to enable. All of these can
 # also be set later from the admin dashboard (Settings), which takes precedence.
 
-# Cloudflare Turnstile secret (anti-spam). Pair with the TURNSTILE_SITE_KEY
-# var in wrangler.json (or set both from the dashboard).
+# Cloudflare Turnstile secret (anti-spam). Pair it with the matching site key,
+# set from the admin dashboard (Settings) or as a TURNSTILE_SITE_KEY var.
 # TURNSTILE_SECRET=""
