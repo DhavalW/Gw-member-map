@@ -7,9 +7,14 @@ export interface Env {
   // Community this map belongs to (branding + links).
   COMMUNITY_NAME: string;
   COMMUNITY_URL: string;
-  PUBLIC_BASE_URL: string;
-  // Public Turnstile site key (safe to expose). Empty disables the widget.
-  TURNSTILE_SITE_KEY: string;
+  // Optional vars — deliberately NOT declared in `wrangler.json`, because the
+  // "Deploy to Cloudflare" wizard turns every declared var into a field the
+  // operator has to fill in before the deploy can proceed. Left undefined they
+  // fall back to a sensible default (see `settings.ts`): the public base URL is
+  // derived from the incoming request, and an unset Turnstile key disables the
+  // widget. Both are still settable from /admin → Settings afterwards.
+  PUBLIC_BASE_URL?: string;
+  TURNSTILE_SITE_KEY?: string;
 
   // Secrets (wrangler secret put ...)
   ADMIN_PASSWORD?: string;

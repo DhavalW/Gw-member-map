@@ -21,8 +21,6 @@
   "vars": {
     "APP_NAME": "Midhrami Studios Member Map",
     "COMMUNITY_NAME": "Midhrami Studios",
-    "COMMUNITY_URL": "https://midhrami.com",
-    "PUBLIC_BASE_URL": "",
-    "TURNSTILE_SITE_KEY": ""
+    "COMMUNITY_URL": "https://midhrami.com"
   }
 }

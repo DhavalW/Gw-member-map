@@ -140,7 +140,8 @@ The button is the easiest way to stand up your own copy. Cloudflare will:
    it to the Worker. Nothing account-specific is ever committed here.
 3. **Prompt you for the secrets** listed in `.dev.vars.example`
    (`ADMIN_PASSWORD`, `SESSION_SECRET`) and store them as encrypted Worker
-   secrets.
+   secrets. Those two are the *only* values you must supply — everything else
+   has a working default and is editable later from the admin dashboard.
 4. **Build and deploy**, and wire up **Workers Builds CI/CD** so every push to
    your production branch redeploys automatically (pull requests get preview
    URLs).
@@ -228,12 +229,20 @@ a value saved from the dashboard always takes precedence.
 | `APP_NAME` | var | Site title shown in the browser tab and as the map heading (default `Midhrami Studios Member Map`). |
 | `COMMUNITY_NAME` | var | Community name used for branding and the header link (default `Midhrami Studios`). |
 | `COMMUNITY_URL` | var | Community website linked from the UI (default `https://midhrami.com`). |
-| `PUBLIC_BASE_URL` | var | Absolute origin used to build edit links (e.g. `https://members.example.com`). Falls back to the request host. |
+| `PUBLIC_BASE_URL` | var | **Optional.** Absolute origin used to build edit links (e.g. `https://members.example.com`). Leave it unset — the Worker derives the origin from the incoming request. Only set it if the map is served behind a different public hostname. |
 | `MODERATION_ENABLED` | var | **Deprecated / no longer required.** Moderation is now always on: every member submission is held as **pending** until an admin publishes it, regardless of this value. |
-| `TURNSTILE_SITE_KEY` | var | Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. |
+| `TURNSTILE_SITE_KEY` | var | **Optional.** Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. Unset means no widget. |
 | `TURNSTILE_SECRET` | secret | Turnstile secret — the Worker verifies the token. The CSP already allows `challenges.cloudflare.com`. |
 
 Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
+
+> **Why the optional vars aren't listed in `wrangler.json`:** the one-click
+> deploy wizard renders *every* var declared there as a field you have to fill
+> in before the deploy can proceed — a var declared as `""` becomes a required
+> prompt, not an optional one. `PUBLIC_BASE_URL` and `TURNSTILE_SITE_KEY` are
+> therefore left out of the config entirely so a fresh deploy asks for nothing
+> beyond the two auth secrets. Both are read as `env` values when present, so
+> adding them to `vars` still works if you'd rather pin them at deploy time.
 
 > The **admin password** (`ADMIN_PASSWORD`) and **session secret**
 > (`SESSION_SECRET`) are intentionally **not** editable from the dashboard —
