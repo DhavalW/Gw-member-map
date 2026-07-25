@@ -1,7 +1,9 @@
 # Headers applied by Cloudflare to static-asset responses (HTML, CSS, JS).
-# Mirrors the security headers the Worker sets on /api/* responses, so the
-# Worker no longer needs to run for every asset request (keeps static serving
-# free + CDN-cached on the Workers free tier).
+# Mirrors the security headers the Worker sets on its own responses, so the
+# Worker doesn't need to run for asset requests (keeps static serving free +
+# CDN-cached on the Workers free tier). The three HTML pages are the exception:
+# they run through the Worker so it can render the community branding into them
+# (see src/branding.ts), and it re-applies these headers itself.
 
 /*
   Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; frame-src https://challenges.cloudflare.com; font-src 'self'; upgrade-insecure-requests

@@ -66,20 +66,33 @@ site runs under a strict Content-Security-Policy.
 ```
 Browser ─┬─► /api/*  ─► Cloudflare Worker (src/) ─► D1 (SQLite)
          │                 └─► Nominatim (geocode proxy)
+         ├─► /, /edit, /admin ─► Worker (branding injected) ─► HTML from public/
          └─► /*      ─► Cloudflare CDN ─► static assets (public/) incl. vendored Leaflet
 ```
 
-The Worker runs **only for `/api/*`**. Static assets are served directly from
-Cloudflare's CDN — cached, fast, and free (they don't count against the Workers
-request limit). Security headers for those assets come from `public/_headers`;
-the Worker applies the same headers to its JSON responses. This keeps the app
-well inside the free tier (see the scaling notes below).
+The Worker runs for `/api/*` and for the three HTML pages. Every other asset is
+served directly from Cloudflare's CDN — cached, fast, and free (those don't
+count against the Workers request limit). Security headers for CDN-served assets
+come from `public/_headers`; the Worker applies the same headers to everything
+it returns. This keeps the app well inside the free tier (see the scaling notes
+below).
+
+**Branding is server-rendered.** The HTML in `public/` ships with *empty*
+branding slots (`data-brand="appName"`, `data-brand-href="communityUrl"`, …).
+`src/branding.ts` fills them in — and inlines the public config into
+`<meta name="app-config">` — as the document streams out, so the community's
+name is correct in the very first paint and in the tab title, with no
+`/api/config` round trip and no placeholder flashing up first. Resolved
+settings are cached per Worker isolate for 30s, so this normally costs no
+database query at all. `assets.run_worker_first` in `wrangler.json` is what
+routes those three pages through the Worker.
 
 | Path                          | Purpose                                         |
 | ----------------------------- | ----------------------------------------------- |
 | `src/index.ts`                | Worker entry + router                           |
 | `src/security.ts`             | CSP/headers, hashing, HMAC sessions, CSRF, escaping |
 | `src/settings.ts`             | Dashboard-configurable branding/integration settings |
+| `src/branding.ts`             | Renders the branding into the HTML before it's served |
 | `src/validate.ts`             | Input validation + contact normalisation        |
 | `src/db.ts`                   | D1 queries (parameterised), incl. profile-image storage |
 | `src/geocode.ts`              | Nominatim forward-geocoding proxy               |
@@ -95,8 +108,10 @@ well inside the free tier (see the scaling notes below).
 Comfortably runs on the **Cloudflare free tier** for communities of hundreds to
 low-thousands of members:
 
-- **Worker requests** (100k/day free): only `/api/*` hits the Worker — roughly
-  two calls per page load — so static assets don't consume the quota.
+- **Worker requests** (100k/day free): only `/api/*` and the HTML pages hit the
+  Worker — roughly two calls per page load, since the config now travels inside
+  the HTML instead of a separate request — so CSS/JS/tiles don't consume the
+  quota.
 - **D1** (free: ~5 GB, ~5M row reads/day, 100k writes/day): a few hundred rows
   is well under 1 MB; the map loads in one query, so even thousands of map views
   per day stay far below the read limit. Writes happen only on submit/edit.

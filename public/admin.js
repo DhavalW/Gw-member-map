@@ -29,15 +29,18 @@ async function init() {
   }
 }
 
-/** Apply the (configurable) community branding to the page chrome. */
+/**
+ * Apply the (configurable) community branding to the page chrome. The Worker
+ * already rendered it into the HTML, so this only re-states it — and, after a
+ * settings save, refreshes it in place. A slot with no configured value is
+ * left blank rather than showing a placeholder name.
+ */
 function applyBranding() {
-  const name = CONFIG.communityName || "Midhrami Studios";
-  document.title = `Admin — ${CONFIG.appName || name + " Member Map"}`;
+  if (CONFIG.appName) document.title = `Admin — ${CONFIG.appName}`;
   const community = document.getElementById("community-link");
-  if (community) {
-    if (CONFIG.communityUrl) community.href = CONFIG.communityUrl;
-    community.textContent = name;
-  }
+  if (!community) return;
+  if (CONFIG.communityUrl) community.href = CONFIG.communityUrl;
+  if (CONFIG.communityName) community.textContent = CONFIG.communityName;
 }
 
 function show(id) {
@@ -1262,7 +1265,8 @@ async function onSaveSettings(e) {
   // Refresh the in-memory defs + re-apply branding live.
   settingDefs = Array.isArray(data.settings) ? data.settings : settingDefs;
   renderSettings();
-  CONFIG = await getConfig();
+  // Bypass the config inlined in this (now outdated) document.
+  CONFIG = await getConfig({ refresh: true });
   applyBranding();
   const okBox = document.getElementById("settings-ok");
   okBox.textContent = "Settings saved.";

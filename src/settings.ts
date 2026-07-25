@@ -118,13 +118,21 @@ const DEF_BY_KEY = new Map(SETTING_DEFS.map((d) => [d.key, d]));
  * Load the saved overrides from D1. Never throws: if the database is briefly
  * unavailable (or the table doesn't exist yet) we fall back to env/defaults so
  * the public config endpoint keeps working.
+ *
+ * The read is attempted first and `ensureSchema` only runs if it fails, so the
+ * common case (an existing deployment) costs a single SELECT instead of a
+ * schema batch plus a SELECT on every cold start.
  */
 async function loadOverrides(env: Env): Promise<Record<string, string>> {
   try {
-    await ensureSchema(env);
     return await loadSettings(env);
   } catch {
-    return {};
+    try {
+      await ensureSchema(env); // fresh database: create the tables, then retry
+      return await loadSettings(env);
+    } catch {
+      return {};
+    }
   }
 }
 
@@ -145,12 +153,36 @@ export interface ResolvedConfig {
   turnstileSecret: string;
 }
 
+/**
+ * Settings are read on every page render and every API call that needs
+ * branding, but they change only when an admin saves the dashboard form. They
+ * are therefore cached in the isolate for a short window: Cloudflare keeps a
+ * Worker isolate warm across requests, so almost every read becomes a
+ * zero-query lookup while a dashboard change still propagates everywhere
+ * within `CONFIG_CACHE_MS`.
+ *
+ * `saveSettings` clears the cache locally, so the admin who made the change
+ * sees it immediately.
+ */
+const CONFIG_CACHE_MS = 30_000;
+let configCache: { at: number; value: ResolvedConfig } | null = null;
+
+/** Drop the cached config so the next read goes back to the database. */
+export function invalidateConfigCache(): void {
+  configCache = null;
+}
+
 /** Fully resolved settings, for server-side use (turnstile, edit links, …). */
 export async function getResolvedConfig(env: Env): Promise<ResolvedConfig> {
+  const now = Date.now();
+  if (configCache && now - configCache.at < CONFIG_CACHE_MS) return configCache.value;
+
   const overrides = await loadOverrides(env);
   const out: Record<string, string> = {};
   for (const def of SETTING_DEFS) out[def.key] = resolveValue(def, overrides, env);
-  return out as unknown as ResolvedConfig;
+  const value = out as unknown as ResolvedConfig;
+  configCache = { at: now, value };
+  return value;
 }
 
 /** The subset of settings safe to expose to the public front-end. */
@@ -282,5 +314,6 @@ export async function saveSettings(
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   await upsertSettings(env, upserts, deletes);
+  invalidateConfigCache();
   return { ok: true };
 }

@@ -9,7 +9,8 @@
   },
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/index.html", "/edit", "/edit.html", "/admin", "/admin.html"]
   },
   "d1_databases": [
     {

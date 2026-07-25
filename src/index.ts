@@ -1,4 +1,5 @@
 import type { Env, MemberRow } from "./types";
+import { brandDocument, isBrandableDocument, looksLikeDocument } from "./branding";
 import {
   ADMIN_COOKIE,
   createAdminSession,
@@ -89,7 +90,17 @@ export default {
         return withHeaders(res);
       }
       // Everything else is a static asset (SPA pages, vendored Leaflet, css).
+      // HTML documents get the community branding rendered into them before
+      // they reach the browser (see src/branding.ts). The config lookup is
+      // started alongside the asset fetch so it overlaps rather than adds to
+      // the response time.
+      const isDocument = looksLikeDocument(url.pathname);
+      const configWarm = isDocument ? getPublicConfig(env).catch(() => undefined) : undefined;
       const asset = await env.ASSETS.fetch(request);
+      await configWarm;
+      if (isDocument && isBrandableDocument(asset)) {
+        return withHeaders(await brandDocument(asset, env));
+      }
       return withHeaders(asset);
     } catch (err) {
       console.error("Unhandled error", err);
