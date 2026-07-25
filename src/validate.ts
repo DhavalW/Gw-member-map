@@ -65,6 +65,26 @@ export function normaliseContact(raw: string): { label: string; url: string } {
   return { label: value, url: "" };
 }
 
+/**
+ * Whitelist a link URL to safe, navigable schemes. Anything else (including
+ * `javascript:` and `data:` URLs) is dropped. Used wherever a URL may arrive
+ * pre-built rather than derived by `normaliseContact` — e.g. the `contactUrl`
+ * column of an admin CSV import, which would otherwise be rendered verbatim
+ * as a clickable link for every visitor.
+ */
+export function safeLinkUrl(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.trim()) return "";
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol === "http:" || u.protocol === "https:" || u.protocol === "mailto:") {
+      return u.toString();
+    }
+  } catch {
+    /* not a URL */
+  }
+  return "";
+}
+
 export function validateSubmission(
   body: Record<string, unknown>,
   opts: { requireConsent?: boolean } = {},

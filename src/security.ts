@@ -216,6 +216,7 @@ export function securityHeaders(): Record<string, string> {
 
   return {
     "Content-Security-Policy": csp,
+    "Cross-Origin-Resource-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",

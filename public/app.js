@@ -32,7 +32,17 @@ const state = {
   pickMap: null,
   pickMarker: null,
   picked: null, // { lat, lng }
+  setSheetOpen: () => {}, // mobile bottom-sheet control, bound in wireSheet()
 };
+
+const mobileQuery = window.matchMedia("(max-width: 720px)");
+const isMobile = () => mobileQuery.matches;
+
+// How many list rows are rendered per chunk. Large communities would otherwise
+// stall the main thread building thousands of DOM nodes at once; instead the
+// list grows as you scroll (an IntersectionObserver watches a sentinel row).
+const LIST_CHUNK = 60;
+const listState = { items: [], rendered: 0, observer: null };
 
 // --- Avatar helpers -------------------------------------------------------
 const AVATAR_COLORS = [
@@ -75,42 +85,104 @@ async function init() {
   }
 
   initMap();
-  await loadMembers();
+  wireCredit();
+  wireSheet();
   wireForm();
   wireSuccess();
+  await loadMembers();
 }
 
 // --- Main map -------------------------------------------------------------
 function initMap() {
-  const map = L.map("map", { worldCopyJump: true }).setView([20, 0], 2);
+  const map = L.map("map", {
+    worldCopyJump: true,
+    // On phones the bottom sheet covers Leaflet's default (bottom-right)
+    // attribution, so surface it top-right instead.
+    attributionControl: false,
+  }).setView([20, 0], 2);
+  L.control
+    .attribution({ position: isMobile() ? "topright" : "bottomright" })
+    .addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
-  const cluster = L.markerClusterGroup({ maxClusterRadius: 50 });
+  // chunkedLoading spreads marker insertion over animation frames, so adding
+  // thousands of pins doesn't freeze the page.
+  const cluster = L.markerClusterGroup({ maxClusterRadius: 50, chunkedLoading: true });
   map.addLayer(cluster);
   state.map = map;
   state.cluster = cluster;
 }
 
+function setLoading(on) {
+  document.getElementById("map-loading").classList.toggle("hidden", !on);
+  if (on) {
+    document.getElementById("member-count").textContent = "Loading…";
+    renderListSkeleton();
+  }
+}
+
+/** Placeholder rows shown in the member list while the fetch is in flight. */
+function renderListSkeleton(count = 7) {
+  const list = document.getElementById("member-list");
+  list.replaceChildren();
+  for (let i = 0; i < count; i++) {
+    list.append(
+      el("div", { class: "member-item skel", "aria-hidden": "true" }, [
+        el("div", { class: "skel-avatar" }),
+        el("div", { class: "member-info" }, [
+          el("div", { class: "skel-line w60" }),
+          el("div", { class: "skel-line w85" }),
+        ]),
+      ]),
+    );
+  }
+}
+
 async function loadMembers() {
-  const { data } = await api("/api/members");
-  const real = Array.isArray(data.members) ? data.members : [];
-  // Demo pins are appended only when the debug-panel toggle is on.
-  MEMBERS = showDemo ? [...real, ...MOCK_MEMBERS] : real;
-  renderMembers(MEMBERS);
+  setLoading(true);
+  try {
+    const { ok, data } = await api("/api/members");
+    if (!ok || !Array.isArray(data.members)) throw new Error("bad response");
+    // Demo pins are appended only when the debug-panel toggle is on.
+    MEMBERS = showDemo ? [...data.members, ...MOCK_MEMBERS] : data.members;
+    renderMembers(MEMBERS);
+  } catch (err) {
+    console.error("loading members failed", err);
+    showLoadError();
+  } finally {
+    setLoading(false);
+  }
+}
+
+/** Fetch failed: say so in the list and offer a retry. */
+function showLoadError() {
+  document.getElementById("member-count").textContent = "";
+  const retry = el("button", { class: "btn small", type: "button", text: "Try again" });
+  retry.addEventListener("click", () => loadMembers());
+  document.getElementById("member-list").replaceChildren(
+    el("div", { class: "list-error" }, [
+      el("div", { text: "Couldn’t load the member list." }),
+      retry,
+    ]),
+  );
 }
 
 function renderMembers(members) {
   state.cluster.clearLayers();
   state.markers.clear();
 
+  const markers = [];
   for (const m of members) {
     const marker = L.marker([m.lat, m.lng]);
     marker.bindPopup(() => buildPopup(m));
-    state.cluster.addLayer(marker);
+    markers.push(marker);
     state.markers.set(m.id, marker);
   }
+  // One bulk insert (paired with chunkedLoading) is far faster than adding
+  // markers to the cluster one at a time.
+  state.cluster.addLayers(markers);
 
   document.getElementById("member-count").textContent =
     members.length === 1 ? "1 member" : `${members.length} members`;
@@ -132,37 +204,78 @@ function buildPopup(m) {
   return node;
 }
 
+function memberItem(m) {
+  const item = el("button", { class: "member-item", role: "listitem", type: "button" }, [
+    avatarEl(m, "av-sm"),
+    el("div", { class: "member-info" }, [
+      el("div", { class: "name", text: m.name }),
+      el("div", { class: "loc", text: m.location }),
+      m.bio ? el("div", { class: "bio", text: m.bio }) : null,
+    ]),
+  ]);
+  item.addEventListener("click", () => focusMember(m));
+  return item;
+}
+
 function renderList(members) {
   const list = document.getElementById("member-list");
+  if (listState.observer) {
+    listState.observer.disconnect();
+    listState.observer = null;
+  }
   list.replaceChildren();
+  listState.items = members;
+  listState.rendered = 0;
+
   if (members.length === 0) {
     list.append(el("div", { class: "empty", text: "No members yet. Be the first to add yourself!" }));
     return;
   }
-  for (const m of members) {
-    const item = el("button", { class: "member-item", role: "listitem", type: "button" }, [
-      avatarEl(m, "av-sm"),
-      el("div", { class: "member-info" }, [
-        el("div", { class: "name", text: m.name }),
-        el("div", { class: "loc", text: m.location }),
-        m.bio ? el("div", { class: "bio", text: m.bio }) : null,
-      ]),
-    ]);
-    item.addEventListener("click", () => focusMember(m));
-    list.append(item);
+
+  appendListChunk(list);
+  if (listState.rendered < members.length) {
+    // Grow the list as the sentinel scrolls into view.
+    const sentinel = el("div", { class: "list-sentinel", "aria-hidden": "true" });
+    list.append(sentinel);
+    listState.observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        appendListChunk(list, sentinel);
+        if (listState.rendered >= listState.items.length) {
+          listState.observer.disconnect();
+          listState.observer = null;
+          sentinel.remove();
+        }
+      },
+      { root: list, rootMargin: "300px" },
+    );
+    listState.observer.observe(sentinel);
   }
+}
+
+/** Append the next chunk of rows (before the sentinel when one exists). */
+function appendListChunk(list, sentinel = null) {
+  const end = Math.min(listState.rendered + LIST_CHUNK, listState.items.length);
+  const frag = document.createDocumentFragment();
+  for (let i = listState.rendered; i < end; i++) frag.append(memberItem(listState.items[i]));
+  listState.rendered = end;
+  if (sentinel) list.insertBefore(frag, sentinel);
+  else list.append(frag);
 }
 
 function focusMember(m) {
   const marker = state.markers.get(m.id);
   if (!marker) return;
+  // On phones the list sits over the map — tuck it away so the pin is visible.
+  if (isMobile()) state.setSheetOpen(false);
   state.map.flyTo([m.lat, m.lng], Math.max(state.map.getZoom(), 6), { duration: 0.6 });
   state.cluster.zoomToShowLayer(marker, () => marker.openPopup());
 }
 
-// Sidebar search
-document.getElementById("filter").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
+// Sidebar search (debounced: filtering + re-rendering a large list every
+// keystroke makes typing feel sluggish).
+const applyFilter = debounce((value) => {
+  const q = value.trim().toLowerCase();
   const filtered = !q
     ? MEMBERS
     : MEMBERS.filter(
@@ -172,7 +285,83 @@ document.getElementById("filter").addEventListener("input", (e) => {
           (m.bio || "").toLowerCase().includes(q),
       );
   renderList(filtered);
-});
+}, 120);
+document.getElementById("filter").addEventListener("input", (e) => applyFilter(e.target.value));
+
+// --- Maker credit dialog --------------------------------------------------
+function wireCredit() {
+  const dialog = document.getElementById("credit-dialog");
+  document.getElementById("credit-open").addEventListener("click", () => dialog.showModal());
+  document.getElementById("credit-close").addEventListener("click", () => dialog.close());
+  // Tapping the backdrop closes it (there's nothing to lose in this dialog).
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+}
+
+// --- Mobile bottom sheet --------------------------------------------------
+const SHEET_PEEK = 118; // keep in sync with --sheet-peek in styles.css
+
+function wireSheet() {
+  const sheet = document.querySelector("aside.sidebar");
+  const handle = document.getElementById("sheet-handle");
+  const filter = document.getElementById("filter");
+
+  const setOpen = (open) => {
+    sheet.classList.toggle("open", open);
+    sheet.classList.remove("dragging");
+    sheet.style.transform = ""; // return control to the CSS classes
+    handle.setAttribute("aria-expanded", String(open));
+    if (!open) filter.blur();
+  };
+  state.setSheetOpen = setOpen;
+
+  let suppressClick = false;
+  handle.addEventListener("click", () => {
+    if (suppressClick) { suppressClick = false; return; }
+    if (isMobile()) setOpen(!sheet.classList.contains("open"));
+  });
+  filter.addEventListener("focus", () => { if (isMobile()) setOpen(true); });
+
+  // Drag-to-open/close on the grab handle.
+  let startY = 0;
+  let baseOffset = 0;
+  let travel = 0;
+  let delta = 0;
+  let dragging = false;
+
+  handle.addEventListener("touchstart", (e) => {
+    if (!isMobile()) return;
+    dragging = true;
+    delta = 0;
+    startY = e.touches[0].clientY;
+    travel = Math.max(sheet.offsetHeight - SHEET_PEEK, 0);
+    baseOffset = sheet.classList.contains("open") ? 0 : travel;
+    sheet.classList.add("dragging");
+  }, { passive: true });
+
+  handle.addEventListener("touchmove", (e) => {
+    if (!dragging) return;
+    delta = e.touches[0].clientY - startY;
+    const off = Math.min(Math.max(baseOffset + delta, 0), travel);
+    sheet.style.transform = `translateY(${off}px)`;
+  }, { passive: true });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    suppressClick = Math.abs(delta) > 8;
+    const off = Math.min(Math.max(baseOffset + delta, 0), travel);
+    // A decisive flick wins; otherwise snap to the nearer state.
+    const open = Math.abs(delta) > 50 ? delta < 0 : off < travel / 2;
+    setOpen(open);
+  };
+  handle.addEventListener("touchend", endDrag);
+  handle.addEventListener("touchcancel", endDrag);
+
+  // Leaving mobile layout: clear any sheet state so desktop renders normally.
+  mobileQuery.addEventListener("change", () => { if (!isMobile()) setOpen(false); });
+}
 
 // --- Submission form ------------------------------------------------------
 function wireForm() {
@@ -186,11 +375,14 @@ function wireForm() {
   photoField.onError((msg) => showFormError(msg));
   document.getElementById("photo-holder").append(photoField.element);
 
-  open.addEventListener("click", () => {
+  const openDialog = () => {
     resetFormErrors(); // never reopen with a stale (or blank) error showing
     dialog.showModal();
     setTimeout(initPickMap, 50); // map needs a sized container
-  });
+  };
+  open.addEventListener("click", openDialog);
+  // Mobile floating action button mirrors the header CTA.
+  document.getElementById("open-form-fab").addEventListener("click", openDialog);
   document.getElementById("close-form").addEventListener("click", () => dialog.close());
   document.getElementById("cancel-form").addEventListener("click", () => dialog.close());
 
@@ -377,6 +569,7 @@ async function onSubmit(e) {
   };
 
   submitBtn.disabled = true;
+  submitBtn.classList.add("loading");
   submitBtn.textContent = "Adding…";
   try {
     const { ok, data } = await api("/api/members", { method: "POST", body: payload });
@@ -412,6 +605,7 @@ async function onSubmit(e) {
     showFormError("Network error. Please try again.");
   } finally {
     submitBtn.disabled = false;
+    submitBtn.classList.remove("loading");
     submitBtn.textContent = "Add me to the map";
   }
 }

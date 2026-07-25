@@ -26,9 +26,10 @@ body {
 a { color: var(--brand); }
 
 /* Layout ------------------------------------------------------------------ */
-.app { display: flex; flex-direction: column; height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
 header.topbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -41,7 +42,7 @@ header.topbar h1 { font-size: 18px; margin: 0; flex: 0 0 auto; }
 header.topbar .spacer { flex: 1 1 auto; }
 header.topbar .count { color: var(--muted); font-size: 13px; }
 
-.layout { flex: 1 1 auto; display: flex; min-height: 0; }
+.layout { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
 
 aside.sidebar {
   width: 340px;
@@ -123,8 +124,8 @@ aside.sidebar {
 .field { margin-bottom: 14px; }
 .field label { display: block; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
 .field .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.field input[type=text], .field input[type=email], .field input[type=url],
-.field input[type=password], .field textarea {
+.field input[type=text], .field input[type=search], .field input[type=email],
+.field input[type=url], .field input[type=password], .field textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line);
   border-radius: 10px; font: inherit; background: #fff; color: var(--ink);
 }
@@ -442,7 +443,169 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 /* Member edit page action row (was inline flex). */
 .edit-actions { display: flex; gap: 10px; justify-content: space-between; margin-top: 8px; }
 
+/* Maker credit (header centre) -------------------------------------------- */
+.credit {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-size: 12.5px; color: var(--muted); white-space: nowrap;
+}
+.credit-name {
+  background: none; border: none; padding: 0; font: inherit; font-weight: 700;
+  color: var(--brand); cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.credit-name:hover, .credit-name:focus-visible { text-decoration-style: solid; outline: none; }
+/* The absolute centring collides with the header buttons on narrow screens:
+   drop the credit onto its own centred row instead (the header wraps). */
+@media (max-width: 980px) {
+  .credit { position: static; transform: none; flex: 1 0 100%; order: 10; text-align: center; }
+}
+#credit-dialog p { margin: 8px 0; }
+#credit-dialog .dialog-foot { justify-content: flex-start; }
+
+/* Spinners + loading states ------------------------------------------------ */
+.spinner {
+  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%;
+  border: 2.5px solid rgba(37, 99, 235, 0.18); border-top-color: var(--brand);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A button doing async work: keeps its label, gains a small trailing spinner. */
+.btn.loading { pointer-events: none; opacity: 0.75; }
+.btn.loading::after {
+  content: ""; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: currentColor;
+  animation: spin 0.7s linear infinite;
+}
+
+/* Full-map overlay while the member list is being fetched. */
+.map-loading {
+  position: absolute; inset: 0; z-index: 600;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(246, 247, 249, 0.55); backdrop-filter: blur(2px);
+  color: var(--muted); font-size: 14px; font-weight: 600;
+  pointer-events: none;
+}
+/* This rule sits after `.hidden` in the cascade, so re-assert the toggle. */
+.map-loading.hidden { display: none; }
+
+/* Skeleton rows shown in the member list during the initial fetch. */
+.member-item.skel { pointer-events: none; }
+.skel-avatar { width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto; }
+.skel-line { height: 12px; border-radius: 6px; margin: 4px 0; }
+.skel-line.w60 { width: 60%; }
+.skel-line.w85 { width: 85%; }
+.skel-avatar, .skel-line {
+  background: linear-gradient(90deg, #e9edf1 25%, #f4f6f8 45%, #e9edf1 65%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Failed-load state in the list, with a retry action. */
+.list-error { padding: 24px 14px; text-align: center; color: var(--muted); font-size: 14px; }
+.list-error .btn { margin-top: 10px; }
+
+/* Sentinel that triggers loading the next chunk of the (long) member list. */
+.list-sentinel { height: 1px; }
+.list-more { padding: 10px 14px; color: var(--muted); font-size: 13px; text-align: center; }
+
+/* Mobile bottom sheet + FAB ------------------------------------------------ */
+/* Grab handle: hidden on desktop, shown at the top of the sheet on mobile. */
+.sheet-handle { display: none; }
+.fab { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Mobile ------------------------------------------------------------------- */
 @media (max-width: 720px) {
-  aside.sidebar { display: none; }
+  :root { --sheet-peek: calc(118px + env(safe-area-inset-bottom, 0px)); }
+
+  header.topbar { gap: 8px; padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top, 0px)); }
   header.topbar .brand h1 { font-size: 16px; }
+  .credit { font-size: 12px; }
+
+  /* Full-bleed map with the member list as a draggable bottom sheet. */
+  .layout { position: relative; }
+  #map { position: absolute; inset: 0; }
+
+  aside.sidebar {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1001;
+    width: 100%; max-width: none;
+    height: 78dvh;
+    border-right: none; border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -6px 28px rgba(16, 24, 40, 0.16);
+    transform: translateY(calc(100% - var(--sheet-peek)));
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0.2, 1);
+    will-change: transform;
+  }
+  aside.sidebar.open { transform: translateY(0); }
+  aside.sidebar.dragging { transition: none; }
+
+  .sheet-handle {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; padding: 10px 0 6px; background: none; border: none; cursor: grab;
+    touch-action: none;
+  }
+  .sheet-handle .grabber {
+    width: 40px; height: 4px; border-radius: 999px; background: #cbd3db;
+  }
+
+  .sidebar .search { padding: 4px 14px 12px; border-bottom: 1px solid var(--line); }
+  .sidebar .list { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .member-item { padding: 13px 16px; }
+
+  /* Floating "add me" action above the sheet peek; hides when the sheet opens. */
+  .fab {
+    display: inline-flex; align-items: center; gap: 8px;
+    position: absolute; right: 14px; z-index: 1002;
+    bottom: calc(var(--sheet-peek) + 14px);
+    background: var(--brand); color: var(--brand-ink);
+    border: none; border-radius: 999px; padding: 13px 18px;
+    font: inherit; font-weight: 700; font-size: 15px;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  aside.sidebar.open ~ .fab { opacity: 0; transform: scale(0.9); pointer-events: none; }
+  /* The header CTA is redundant next to the FAB on phones. */
+  header.topbar #open-form { display: none; }
+
+  /* Comfortable touch targets + no iOS focus-zoom (needs >=16px inputs). */
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 38px; }
+  .icon-btn { min-width: 44px; min-height: 44px; }
+  .field input[type=text], .field input[type=email], .field input[type=url],
+  .field input[type=password], .field textarea, .field select,
+  .search input, .admin-toolbar input, .filter-select { font-size: 16px; }
+
+  /* Dialogs become bottom sheets. */
+  dialog {
+    width: 100%; max-width: 100%;
+    margin: auto 0 0;
+    border-radius: 16px 16px 0 0;
+    max-height: 94dvh;
+  }
+  dialog[open] { animation: dialog-in 0.25s ease; }
+  .dialog-body { max-height: calc(94dvh - 132px); }
+  .dialog-foot { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .dialog-foot .btn { flex: 1 1 auto; justify-content: center; }
+
+  .pickmap { height: 180px; }
+
+  /* Leaflet touch niceties. */
+  .leaflet-popup-content { margin: 12px 14px; }
+
+  .wrap { padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .card { padding: 16px; }
+  .edit-actions { flex-direction: column-reverse; }
+  .edit-actions .btn { justify-content: center; }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }

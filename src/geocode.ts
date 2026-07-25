@@ -19,7 +19,9 @@ export async function geocode(
   env: Env,
   limit = 5,
 ): Promise<GeocodeResult[]> {
-  const q = query.trim();
+  // Cap the query length so the public proxy can't be used to relay huge
+  // payloads upstream; real place searches are far shorter than this.
+  const q = query.trim().slice(0, 200);
   if (q.length < 2) return [];
 
   const url = new URL("https://nominatim.openstreetmap.org/search");

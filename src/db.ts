@@ -24,10 +24,16 @@ export function toOwner(row: MemberRow): OwnerMember {
   };
 }
 
-/** Publicly visible members: opted-in and published. */
+/**
+ * Publicly visible members: opted-in and published. Selects only the columns
+ * the public payload needs — never `email`, `edit_token_hash` or `ip_hash` —
+ * which also keeps the row size (and D1 read cost) down on large communities.
+ */
 export async function listPublicMembers(env: Env): Promise<PublicMember[]> {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM members
+    `SELECT public_id, display_name, location_name, lat, lng, bio,
+            contact_label, contact_url, created_at, image_updated_at
+       FROM members
        WHERE status = 'published' AND consent_public = 1
        ORDER BY created_at DESC`,
   ).all<MemberRow>();

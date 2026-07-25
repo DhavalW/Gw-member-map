@@ -31,6 +31,9 @@ const SCHEMA_STATEMENTS: string[] = [
      image_updated_at INTEGER
    )`,
   `CREATE INDEX IF NOT EXISTS idx_members_public_status ON members (status, consent_public)`,
+  // Covers the public map query's filter + ORDER BY created_at DESC in one
+  // index, so listing stays fast as the community grows.
+  `CREATE INDEX IF NOT EXISTS idx_members_public_created ON members (status, consent_public, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_members_email ON members (email)`,
   `CREATE INDEX IF NOT EXISTS idx_members_ip_created ON members (ip_hash, created_at)`,
   // Optional profile image, one row per member, keyed by the opaque public_id.
