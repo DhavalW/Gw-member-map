@@ -144,7 +144,7 @@ the `ADMIN_PASSWORD` above.
 
 ### One-click deploy (recommended)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DhavalW/Gw-member-map)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/DhavalW/community-member-map)
 
 The button is the easiest way to stand up your own copy. Cloudflare will:
 
@@ -221,7 +221,7 @@ deploy auto-provisions D1, and the Worker creates its own tables on first use.
 ```bash
 npx wrangler login
 # Optional: create the DB up front (otherwise it's auto-provisioned on deploy)
-# npx wrangler d1 create gw-member-map   # then paste the id into wrangler.json
+# npx wrangler d1 create community-member-map   # then paste the id into wrangler.json
 npx wrangler secret put ADMIN_PASSWORD     # admin sign-in password
 npx wrangler secret put SESSION_SECRET      # random 32+ byte string for signing
 npm run deploy                              # deploys the Worker (schema self-initialises)

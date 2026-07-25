@@ -5,7 +5,7 @@ const L = window.L;
 configureLeafletIcons(L);
 const overlay = installDebugOverlay(); // on-screen logs for devices without a dev console
 
-const DEMO_KEY = "gw-show-demo-data";
+const DEMO_KEY = "member-map-show-demo-data";
 let showDemo = localStorage.getItem(DEMO_KEY) === "1"; // off by default
 
 let CONFIG = {};

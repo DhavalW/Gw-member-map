@@ -41,13 +41,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  UPSTREAM_REPO: DhavalW/Gw-member-map
+  UPSTREAM_REPO: DhavalW/community-member-map
   UPSTREAM_BRANCH: main
 
 jobs:
   sync:
     # Guard for the common case; the script below re-checks case-insensitively.
-    if: github.repository != 'DhavalW/Gw-member-map'
+    if: github.repository != 'DhavalW/community-member-map'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
