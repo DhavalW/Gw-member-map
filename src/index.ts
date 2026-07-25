@@ -46,7 +46,7 @@ import {
   getResolvedConfig,
   saveSettings,
 } from "./settings";
-import { validateSubmission } from "./validate";
+import { safeLinkUrl, validateSubmission } from "./validate";
 
 const SUBMIT_LIMIT = 5; // submissions per IP per hour
 const SUBMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -60,6 +60,12 @@ const IMPORT_CHUNK = 50;
 // and the accepted formats so the database can't be bloated with large blobs.
 const MAX_IMAGE_BYTES = 256 * 1024; // 256 KB after client-side compression
 const ALLOWED_IMAGE_TYPES = new Set(["image/webp", "image/jpeg", "image/png"]);
+
+// Hard ceilings on JSON request bodies, enforced before parsing so an
+// oversized payload can't tie up memory. Normal API calls are tiny; only the
+// admin CSV import legitimately sends a large body (up to IMPORT_MAX_ROWS).
+const MAX_JSON_BYTES = 512 * 1024; // 512 KB for regular endpoints
+const MAX_IMPORT_JSON_BYTES = 8 * 1024 * 1024; // 8 MB for bulk import
 
 // --- Admin login brute-force protection ---
 // Failures are counted per IP within a rolling window; once the free-attempt
@@ -284,11 +290,20 @@ async function authorizeMember(
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+async function readJson(
+  request: Request,
+  maxBytes = MAX_JSON_BYTES,
+): Promise<Record<string, unknown> | null> {
   const ct = request.headers.get("Content-Type") || "";
   if (!ct.includes("application/json")) return null;
+  // Reject oversized bodies up front (and again after reading, since
+  // Content-Length can be absent or lie).
+  const declared = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
   try {
-    const body = await request.json();
+    const text = await request.text();
+    if (text.length > maxBytes) return null;
+    const body = JSON.parse(text);
     return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
   } catch {
     return null;
@@ -551,6 +566,12 @@ async function handlePutImage(request: Request, env: Env, publicId: string): Pro
     return json({ error: "Image is too large after processing. Please choose a smaller image." }, 413);
   }
 
+  // Don't trust the declared Content-Type alone: check the file signature so
+  // arbitrary bytes can't be stored (and later served) under an image type.
+  if (!matchesImageSignature(new Uint8Array(buf), contentType)) {
+    return json({ error: "That file doesn't look like a valid image." }, 415);
+  }
+
   const width = Number(request.headers.get("X-Image-Width")) || null;
   const height = Number(request.headers.get("X-Image-Height")) || null;
 
@@ -563,6 +584,28 @@ async function handlePutImage(request: Request, env: Env, publicId: string): Pro
   });
 
   return json({ ok: true, imageUpdatedAt: version });
+}
+
+/** True when `bytes` begin with the magic numbers of the declared image type. */
+function matchesImageSignature(bytes: Uint8Array, contentType: string): boolean {
+  if (bytes.length < 12) return false;
+  switch (contentType) {
+    case "image/jpeg":
+      return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    case "image/png":
+      return (
+        bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+        bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+      );
+    case "image/webp":
+      // "RIFF" .... "WEBP"
+      return (
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+      );
+    default:
+      return false;
+  }
 }
 
 /** Remove a member's profile image (owner or admin). */
@@ -760,7 +803,7 @@ async function handleAdminImport(request: Request, env: Env): Promise<Response> 
   if (!sameOrigin(request)) return json({ error: "Bad origin" }, 403);
   if (!(await isAdmin(request, env))) return json({ error: "Unauthorized" }, 401);
 
-  const body = await readJson(request);
+  const body = await readJson(request, MAX_IMPORT_JSON_BYTES);
   const rows = Array.isArray(body?.members) ? body!.members : null;
   if (!rows) return json({ error: "Expected a members array." }, 400);
   if (rows.length > IMPORT_MAX_ROWS) {
@@ -794,11 +837,14 @@ async function handleAdminImport(request: Request, env: Env): Promise<Response> 
       continue;
     }
     const v = result.value;
-    // Contact may arrive pre-split (label + url) from our own export.
+    // Contact may arrive pre-split (label + url) from our own export. The url
+    // column is attacker-controllable CSV text rendered as a clickable link on
+    // the public map, so it is whitelisted to http(s)/mailto — a `javascript:`
+    // (or any other scheme) URL is dropped rather than stored.
     const contactLabel =
       typeof r.contactLabel === "string" && r.contactLabel ? r.contactLabel : v.contact_label;
     const contactUrl =
-      typeof r.contactUrl === "string" ? r.contactUrl : v.contact_url;
+      typeof r.contactUrl === "string" ? safeLinkUrl(r.contactUrl) : v.contact_url;
     const status = ["published", "pending", "hidden"].includes(String(r.status))
       ? String(r.status)
       : "published";

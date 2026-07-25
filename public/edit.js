@@ -245,6 +245,7 @@ async function onSave(e) {
   };
 
   btn.disabled = true;
+  btn.classList.add("loading");
   btn.textContent = "Saving…";
   try {
     const { ok, data } = await api(`/api/members/${encodeURIComponent(publicId)}`, {
@@ -292,6 +293,7 @@ async function onSave(e) {
     errBox.style.display = "block";
   } finally {
     btn.disabled = false;
+    btn.classList.remove("loading");
     btn.textContent = "Save changes";
   }
 }

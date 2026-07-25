@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
   <title>Midhrami Studios Member Map</title>
   <meta name="description" content="An opt-in community member directory shown on a world map." />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
@@ -18,6 +19,9 @@
         <a id="community-link" class="brand-link" href="https://midhrami.com" target="_blank" rel="noopener noreferrer">Midhrami Studios</a>
       </div>
       <span class="count" id="member-count" aria-live="polite"></span>
+      <div class="credit">Made by
+        <button type="button" class="credit-name" id="credit-open" aria-haspopup="dialog">DhavalW</button>
+      </div>
       <span class="spacer"></span>
       <a class="btn small ghost" href="/admin">Admin</a>
       <a class="btn small" href="/edit">Edit my entry</a>
@@ -26,17 +30,46 @@
 
     <div class="layout">
       <aside class="sidebar">
+        <button type="button" class="sheet-handle" id="sheet-handle"
+                aria-label="Expand or collapse the member list" aria-expanded="false">
+          <span class="grabber"></span>
+        </button>
         <div class="search">
           <div class="field">
             <label for="filter" class="sr-only">Search members</label>
-            <input type="text" id="filter" placeholder="Search by name or location…" autocomplete="off" />
+            <input type="search" id="filter" placeholder="Search by name or location…" autocomplete="off" />
           </div>
         </div>
         <div class="list" id="member-list" role="list"></div>
       </aside>
       <div id="map" role="application" aria-label="World map of members"></div>
+      <div class="map-loading hidden" id="map-loading">
+        <div class="spinner" aria-hidden="true"></div>
+        <span>Loading members…</span>
+      </div>
+      <button class="fab" id="open-form-fab">＋ Add me</button>
     </div>
   </div>
+
+  <!-- Maker credit dialog -->
+  <dialog id="credit-dialog" aria-labelledby="credit-title">
+    <div class="dialog-head">
+      <h2 id="credit-title">Made by DhavalW 👋</h2>
+      <span class="spacer"></span>
+      <button type="button" class="icon-btn" id="credit-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body">
+      <p>Check out my other products
+        <a href="https://www.midhrami.com" target="_blank" rel="noopener noreferrer">here</a>.</p>
+      <p>If you'd like to hire me, or even get this member map for your community —
+        reach out to me on Slack or
+        <a href="https://www.linkedin.com/in/dhavalmw" target="_blank" rel="noopener noreferrer">LinkedIn</a>.</p>
+    </div>
+    <div class="dialog-foot">
+      <a class="btn" href="https://www.midhrami.com" target="_blank" rel="noopener noreferrer">My products</a>
+      <a class="btn primary" href="https://www.linkedin.com/in/dhavalmw" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+    </div>
+  </dialog>
 
   <!-- Submission dialog -->
   <dialog id="form-dialog" aria-labelledby="form-title">

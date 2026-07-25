@@ -8,7 +8,6 @@ export interface Env {
   COMMUNITY_NAME: string;
   COMMUNITY_URL: string;
   PUBLIC_BASE_URL: string;
-  MODERATION_ENABLED: string;
   // Public Turnstile site key (safe to expose). Empty disables the widget.
   TURNSTILE_SITE_KEY: string;
 
