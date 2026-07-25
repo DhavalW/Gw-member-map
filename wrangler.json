@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gw-member-map",
+  "name": "community-member-map",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -15,7 +15,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "gw-member-map",
+      "database_name": "community-member-map",
       "migrations_dir": "migrations"
     }
   ],

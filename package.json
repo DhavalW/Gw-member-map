@@ -1,5 +1,5 @@
 {
-  "name": "gw-member-map",
+  "name": "community-member-map",
   "version": "1.0.0",
   "description": "A spatial, opt-in member directory on a world map, hosted on Cloudflare Workers + D1.",
   "private": true,
