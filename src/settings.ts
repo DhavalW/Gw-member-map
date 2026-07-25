@@ -197,6 +197,14 @@ export async function getPublicConfig(env: Env): Promise<Record<string, unknown>
     // longer disables this.)
     moderationEnabled: true,
     adminConfigured: isAdminConfigured(env),
+    // Which of the two required secrets the Worker cannot see (names only).
+    // Lets the /admin error card say exactly what to fix — e.g. a typo'd name,
+    // or a value added as a plain-text var that the next deploy wiped. Only
+    // meaningful pre-setup: once both are set the list is empty.
+    missingAdminSecrets: [
+      ...(env.ADMIN_PASSWORD ? [] : ["ADMIN_PASSWORD"]),
+      ...(env.SESSION_SECRET ? [] : ["SESSION_SECRET"]),
+    ],
     turnstileSiteKey: cfg.turnstileSiteKey,
   };
 }

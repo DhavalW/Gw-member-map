@@ -157,6 +157,10 @@ The button is the easiest way to stand up your own copy. Cloudflare will:
    (`ADMIN_PASSWORD`, `SESSION_SECRET`) and store them as encrypted Worker
    secrets. Those two are the *only* values you must supply — everything else
    has a working default and is editable later from the admin dashboard.
+   ⚠️ Only this **button** flow prompts for secrets. The dashboard's own
+   *Import a repository / Connect to Git* flow never asks for them — if you set
+   up that way, add the two secrets yourself afterwards (see
+   [Troubleshooting](#troubleshooting-admin-access-isnt-configured)).
 4. **Build and deploy**, and wire up **Workers Builds CI/CD** so every push to
    your production branch redeploys automatically (pull requests get preview
    URLs).
@@ -206,8 +210,11 @@ If you'd rather connect this repo manually (**Workers & Pages → Create → Wor
 → Connect to Git**): pick your production branch, leave the **build command**
 empty (the front-end libs are already vendored into `public/`), and set the
 **deploy command** to `npm run deploy` (which runs `wrangler deploy` — note:
-`npm`, not `npx`). Add the required secrets to the Worker afterwards. The first
-deploy auto-provisions D1, and the Worker creates its own tables on first use.
+`npm`, not `npx`). This flow does **not** prompt for the two required secrets —
+add `ADMIN_PASSWORD` and `SESSION_SECRET` to the Worker afterwards, each with
+**type "Secret"** (see [Troubleshooting](#troubleshooting-admin-access-isnt-configured)).
+The first deploy auto-provisions D1, and the Worker creates its own tables on
+first use.
 
 > **Note on the config format:** the Worker config is plain `wrangler.json`, not
 > `wrangler.jsonc`. Workers Builds' config detector fails to parse JSON-with-comments,
@@ -215,6 +222,37 @@ deploy auto-provisions D1, and the Worker creates its own tables on first use.
 > so `wrangler deploy` falls back to an interactive login and the build fails with
 > *"In a non-interactive environment, it's necessary to…"*. Keep this file
 > comment-free (document settings here in the README instead).
+
+### Troubleshooting: "Admin access isn't configured"
+
+`/admin` shows this when the Worker can't see `ADMIN_PASSWORD` and/or
+`SESSION_SECRET` at runtime — the page now names the exact secret(s) missing.
+If you've "added both" and the error persists, it's almost always one of these:
+
+1. **The variable type was "Text", not "Secret".** On every deploy,
+   `wrangler deploy` replaces the Worker's plain-text variables with the `vars`
+   from `wrangler.json` — and this project deploys on *every push* plus a daily
+   auto-sync, so dashboard-added Text values get wiped within a day. Values
+   saved with type **Secret** are never touched by deploys. (`wrangler.json`
+   now also sets `"keep_vars": true` as a safety net, but Secret is the correct
+   type for these two regardless.)
+2. **They were added as *build* variables.** *Settings → Build → Variables and
+   secrets* only exist while Workers Builds runs your build — the running
+   Worker never sees them. Use ***Settings → Variables and Secrets*** (the
+   runtime section) instead.
+3. **They were added to the account-level Secrets Store.** Secrets Store
+   entries only reach a Worker through an explicit binding, which this project
+   doesn't use. Add the values directly on the Worker as type "Secret".
+4. **Wrong Worker, or a typo in the name.** The names must be exactly
+   `ADMIN_PASSWORD` and `SESSION_SECRET`, on the Worker that serves your map.
+
+Adding a secret in the dashboard deploys a new version when you confirm — no
+manual redeploy is needed; the change is live within seconds. From the CLI:
+`npx wrangler secret put ADMIN_PASSWORD` (same for `SESSION_SECRET`).
+
+Note the dashboard's *Import a repository / Connect to Git* setup flow never
+prompts for secrets — only the **Deploy to Cloudflare button** reads
+`.dev.vars.example` and asks for them during setup.
 
 ### Manual deploy (CLI)
 

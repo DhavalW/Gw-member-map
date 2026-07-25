@@ -38,8 +38,31 @@
     </div>
 
     <div class="card hidden" id="not-configured">
-      <p>Admin access isn’t configured on this deployment. Set the
-        <code>ADMIN_PASSWORD</code> and <code>SESSION_SECRET</code> secrets, then redeploy.</p>
+      <p><strong>Admin access isn’t configured on this deployment.</strong></p>
+      <p id="nc-missing">The Worker can’t see the <code>ADMIN_PASSWORD</code> and
+        <code>SESSION_SECRET</code> secrets.</p>
+      <p>To set them: in the Cloudflare dashboard open <em>Workers &amp; Pages →
+        this Worker → Settings → Variables and Secrets</em>, add each value with
+        <strong>Type “Secret”</strong>, and confirm the deploy when prompted.
+        (Or run <code>wrangler secret put &lt;NAME&gt;</code>.)</p>
+      <details>
+        <summary>Already added them and still seeing this?</summary>
+        <ul>
+          <li><strong>The type must be “Secret”, not “Text”.</strong> Every
+            git-triggered deploy (including this project’s daily auto-sync)
+            replaces plain-text variables with the ones in <code>wrangler.json</code>,
+            so Text values added in the dashboard get wiped. Secrets survive
+            deploys.</li>
+          <li><strong>Use the Worker’s runtime variables</strong> (Settings →
+            Variables and Secrets) — not <em>Settings → Build → Variables</em>,
+            which only exist during the build.</li>
+          <li><strong>Check the names</strong> — they must be exactly
+            <code>ADMIN_PASSWORD</code> and <code>SESSION_SECRET</code> (no
+            spaces, same capitalisation), on <em>this</em> Worker.</li>
+          <li><strong>Account-level Secrets Store entries don’t apply here</strong> —
+            add the values directly on the Worker as “Secret” variables.</li>
+        </ul>
+      </details>
     </div>
 
     <div id="loading-view" class="card"><p class="muted">Loading…</p></div>

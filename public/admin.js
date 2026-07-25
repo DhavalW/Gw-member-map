@@ -18,6 +18,7 @@ async function init() {
   CONFIG = await getConfig();
   applyBranding();
   if (!CONFIG.adminConfigured) {
+    renderMissingSecrets();
     show("not-configured");
     return;
   }
@@ -27,6 +28,24 @@ async function init() {
   } else {
     showLogin();
   }
+}
+
+/**
+ * Say exactly which of the two required secrets the Worker can't see, so a
+ * half-configured deployment (typo'd name, value wiped by a redeploy) doesn't
+ * present as "set both and it still doesn't work".
+ */
+function renderMissingSecrets() {
+  const box = document.getElementById("nc-missing");
+  const missing = Array.isArray(CONFIG.missingAdminSecrets) ? CONFIG.missingAdminSecrets : [];
+  if (!box || missing.length === 0) return;
+  box.textContent = "";
+  box.append("The Worker can’t see ");
+  missing.forEach((name, i) => {
+    if (i > 0) box.append(" or ");
+    box.append(el("code", {}, name));
+  });
+  box.append(missing.length === 1 ? " — the other secret is set." : ".");
 }
 
 /**
