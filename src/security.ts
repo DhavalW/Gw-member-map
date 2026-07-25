@@ -227,5 +227,31 @@ export function securityHeaders(): Record<string, string> {
 }
 
 export function isAdminConfigured(env: Env): boolean {
-  return Boolean(env.ADMIN_PASSWORD && env.SESSION_SECRET);
+  return adminSecretProblems(env).length === 0;
+}
+
+/**
+ * Classify what is wrong with each required auth secret, so /admin can say
+ * exactly what to fix instead of a generic "not configured".
+ *
+ * - "missing"    — no binding of that name at all.
+ * - "empty"      — bound but the value is an empty string (e.g. a setup wizard
+ *                  stored a blank).
+ * - "unreadable" — bound to something that isn't a plain string. Most likely
+ *                  an account-level Secrets Store binding, which reaches the
+ *                  Worker as an object (`{ get() }`), not the string this app
+ *                  signs and compares with — and which the next config-driven
+ *                  deploy strips anyway. These must be Worker secrets.
+ */
+export type SecretProblem = "missing" | "empty" | "unreadable";
+
+export function adminSecretProblems(env: Env): { name: string; problem: SecretProblem }[] {
+  const out: { name: string; problem: SecretProblem }[] = [];
+  for (const name of ["ADMIN_PASSWORD", "SESSION_SECRET"] as const) {
+    const v = env[name];
+    if (v === undefined || v === null) out.push({ name, problem: "missing" });
+    else if (typeof v !== "string") out.push({ name, problem: "unreadable" });
+    else if (v.length === 0) out.push({ name, problem: "empty" });
+  }
+  return out;
 }

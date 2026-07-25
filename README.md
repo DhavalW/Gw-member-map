@@ -225,26 +225,36 @@ first use.
 
 ### Troubleshooting: "Admin access isn't configured"
 
-`/admin` shows this when the Worker can't see `ADMIN_PASSWORD` and/or
-`SESSION_SECRET` at runtime — the page now names the exact secret(s) missing.
-If you've "added both" and the error persists, it's almost always one of these:
+`/admin` shows this when the Worker serving the page can't read
+`ADMIN_PASSWORD` and/or `SESSION_SECRET` at runtime. The page now reports the
+exact per-secret problem (missing / empty / bound but unreadable), and the same
+diagnosis is written to the Worker's Logs.
 
-1. **The variable type was "Text", not "Secret".** On every deploy,
-   `wrangler deploy` replaces the Worker's plain-text variables with the `vars`
-   from `wrangler.json` — and this project deploys on *every push* plus a daily
-   auto-sync, so dashboard-added Text values get wiped within a day. Values
-   saved with type **Secret** are never touched by deploys. (`wrangler.json`
-   now also sets `"keep_vars": true` as a safety net, but Secret is the correct
-   type for these two regardless.)
-2. **They were added as *build* variables.** *Settings → Build → Variables and
-   secrets* only exist while Workers Builds runs your build — the running
-   Worker never sees them. Use ***Settings → Variables and Secrets*** (the
-   runtime section) instead.
-3. **They were added to the account-level Secrets Store.** Secrets Store
-   entries only reach a Worker through an explicit binding, which this project
-   doesn't use. Add the values directly on the Worker as type "Secret".
-4. **Wrong Worker, or a typo in the name.** The names must be exactly
-   `ADMIN_PASSWORD` and `SESSION_SECRET`, on the Worker that serves your map.
+**Get ground truth in one command** — from your clone:
+
+```bash
+npx wrangler secret list        # what the config's Worker actually holds
+```
+
+- **Both listed, error persists** → the URL you're visiting is served by a
+  *different* Worker than the one holding the secrets. Check *Settings →
+  Domains & Routes* on each Worker; duplicates are easy to end up with after a
+  rename or a second community deployment.
+- **Not listed** → they aren't Worker secrets on that Worker. Usual reasons:
+  1. **Added to the account-level Secrets Store** (the dashboard's newer "add
+     secret" flow steers there). Secrets Store entries reach a Worker only via
+     an explicit binding this project doesn't use — and any dashboard-added
+     binding is removed again by the next git-triggered deploy. Add the values
+     directly on the Worker: *Settings → Variables and Secrets*, type
+     **Secret**.
+  2. **Saved as a new version but never deployed** — confirm the *Deploy*
+     prompt after adding them.
+  3. **Added as *build* variables** (*Settings → Build → Variables and
+     secrets*), which exist only during the build, not at runtime.
+  4. **Added as type "Text"** — plain-text variables are replaced by
+     `wrangler.json`'s `vars` on every deploy (this project deploys on every
+     push plus a daily auto-sync). `keep_vars: true` now softens this, but
+     type **Secret** is correct for these two regardless.
 
 Adding a secret in the dashboard deploys a new version when you confirm — no
 manual redeploy is needed; the change is live within seconds. From the CLI:

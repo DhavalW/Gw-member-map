@@ -1,7 +1,26 @@
 import type { Env } from "./types";
 import { ensureSchema } from "./schema";
 import { loadSettings, upsertSettings } from "./db";
-import { isAdminConfigured } from "./security";
+import { adminSecretProblems, isAdminConfigured } from "./security";
+
+/**
+ * Report the auth-secret problems and, once per isolate, mirror them into the
+ * Worker logs — so a misconfigured deployment is visible in the dashboard's
+ * Logs/Observability view, not only on the /admin page.
+ */
+let secretProblemsLogged = false;
+function warnAdminSecretProblems(env: Env): { name: string; problem: string }[] {
+  const problems = adminSecretProblems(env);
+  if (problems.length > 0 && !secretProblemsLogged) {
+    secretProblemsLogged = true;
+    console.warn(
+      "Admin auth is not configured: " +
+        problems.map((p) => `${p.name} is ${p.problem}`).join(", ") +
+        ". Add both as Worker secrets (Settings → Variables and Secrets, type \"Secret\").",
+    );
+  }
+  return problems;
+}
 
 /**
  * Runtime-configurable settings.
@@ -197,14 +216,11 @@ export async function getPublicConfig(env: Env): Promise<Record<string, unknown>
     // longer disables this.)
     moderationEnabled: true,
     adminConfigured: isAdminConfigured(env),
-    // Which of the two required secrets the Worker cannot see (names only).
-    // Lets the /admin error card say exactly what to fix — e.g. a typo'd name,
-    // or a value added as a plain-text var that the next deploy wiped. Only
-    // meaningful pre-setup: once both are set the list is empty.
-    missingAdminSecrets: [
-      ...(env.ADMIN_PASSWORD ? [] : ["ADMIN_PASSWORD"]),
-      ...(env.SESSION_SECRET ? [] : ["SESSION_SECRET"]),
-    ],
+    // What is wrong with each required auth secret (names + category only,
+    // never values). Lets the /admin error card say exactly what to fix — a
+    // binding the Worker can't see, an empty value, or a Secrets Store
+    // binding it can't read. Empty once both are usable.
+    adminSecretProblems: warnAdminSecretProblems(env),
     turnstileSiteKey: cfg.turnstileSiteKey,
   };
 }

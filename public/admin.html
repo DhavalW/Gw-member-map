@@ -48,19 +48,25 @@
       <details>
         <summary>Already added them and still seeing this?</summary>
         <ul>
-          <li><strong>The type must be “Secret”, not “Text”.</strong> Every
-            git-triggered deploy (including this project’s daily auto-sync)
-            replaces plain-text variables with the ones in <code>wrangler.json</code>,
-            so Text values added in the dashboard get wiped. Secrets survive
-            deploys.</li>
-          <li><strong>Use the Worker’s runtime variables</strong> (Settings →
-            Variables and Secrets) — not <em>Settings → Build → Variables</em>,
-            which only exist during the build.</li>
-          <li><strong>Check the names</strong> — they must be exactly
-            <code>ADMIN_PASSWORD</code> and <code>SESSION_SECRET</code> (no
-            spaces, same capitalisation), on <em>this</em> Worker.</li>
-          <li><strong>Account-level Secrets Store entries don’t apply here</strong> —
-            add the values directly on the Worker as “Secret” variables.</li>
+          <li><strong>Confirm which Worker serves this page.</strong> Open the
+            Worker in the dashboard and check <em>Settings → Domains &amp;
+            Routes</em> for the URL you’re on. With more than one deployment
+            (or after a rename) it’s easy to add the secrets to a similarly
+            named Worker. Ground truth from your clone:
+            <code>npx wrangler secret list</code> shows exactly what the
+            config’s Worker holds.</li>
+          <li><strong>Deploy the version that has them.</strong> Adding secrets
+            in the dashboard creates a new version — choose <em>Deploy</em>
+            when prompted; a version that’s only “saved” never goes live.</li>
+          <li><strong>Add them on the Worker, not the account Secrets
+            Store.</strong> Secrets Store entries reach a Worker only through a
+            binding this app doesn’t use — use <em>the Worker’s</em> Settings →
+            Variables and Secrets with type “Secret”.</li>
+          <li><strong>Use runtime variables, not build variables</strong> —
+            <em>Settings → Build → Variables</em> exist only during the build.</li>
+          <li><strong>Type “Text” gets wiped.</strong> Git-triggered deploys
+            replace plain-text variables with the ones in
+            <code>wrangler.json</code>; type “Secret” survives deploys.</li>
         </ul>
       </details>
     </div>

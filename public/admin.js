@@ -31,21 +31,27 @@ async function init() {
 }
 
 /**
- * Say exactly which of the two required secrets the Worker can't see, so a
- * half-configured deployment (typo'd name, value wiped by a redeploy) doesn't
- * present as "set both and it still doesn't work".
+ * Say exactly what is wrong with each required secret, so a half-configured
+ * deployment (typo'd name, blank value, Secrets Store binding, secrets on a
+ * different Worker) doesn't present as "set both and it still doesn't work".
  */
+const SECRET_PROBLEM_TEXT = {
+  missing: " — this Worker has no secret with that name. If you added it and it isn’t here, it most likely went to a different Worker or to the account-level Secrets Store.",
+  empty: " — the secret exists but its value is empty. Re-enter it with a real value.",
+  unreadable: " — bound via the account-level Secrets Store, which this app can’t read (and which the next deploy removes). Re-add it directly on the Worker with type “Secret”.",
+};
+
 function renderMissingSecrets() {
   const box = document.getElementById("nc-missing");
-  const missing = Array.isArray(CONFIG.missingAdminSecrets) ? CONFIG.missingAdminSecrets : [];
-  if (!box || missing.length === 0) return;
+  const problems = Array.isArray(CONFIG.adminSecretProblems) ? CONFIG.adminSecretProblems : [];
+  if (!box || problems.length === 0) return;
   box.textContent = "";
-  box.append("The Worker can’t see ");
-  missing.forEach((name, i) => {
-    if (i > 0) box.append(" or ");
-    box.append(el("code", {}, name));
-  });
-  box.append(missing.length === 1 ? " — the other secret is set." : ".");
+  const list = el("ul");
+  for (const p of problems) {
+    list.append(el("li", {}, [el("code", {}, p.name), SECRET_PROBLEM_TEXT[p.problem] || " — not usable."]));
+  }
+  box.append("What the Worker sees right now:", list);
+  if (problems.length === 1) box.append("The other secret is fine.");
 }
 
 /**
