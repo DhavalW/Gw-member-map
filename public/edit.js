@@ -38,12 +38,15 @@ async function init() {
   showEditView(data.member);
 }
 
-/** Apply the configurable community branding to this page. */
+/**
+ * Apply the configurable community branding to this page. The Worker already
+ * rendered it into the HTML, so this only re-states it — and leaves a slot
+ * blank rather than filling it with a placeholder name.
+ */
 function applyBranding() {
-  const name = CONFIG.communityName || "Midhrami Studios";
-  document.title = `Edit your entry — ${CONFIG.appName || name + " Member Map"}`;
+  if (CONFIG.appName) document.title = `Edit your entry — ${CONFIG.appName}`;
   const nameEl = document.getElementById("community-name");
-  if (nameEl) nameEl.textContent = name;
+  if (nameEl && CONFIG.communityName) nameEl.textContent = CONFIG.communityName;
 }
 
 function show(id) {

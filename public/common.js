@@ -37,8 +37,41 @@ export async function api(path, options = {}) {
   return { ok: res.ok, status: res.status, data: data || {} };
 }
 
-export function getConfig() {
-  return api("/api/config").then((r) => r.data);
+let configPromise = null;
+
+/**
+ * The public config (branding + integration flags).
+ *
+ * The Worker inlines it into `<meta name="app-config">` when it serves the
+ * page, so this normally resolves with no network request at all — the values
+ * are available before the first paint. `/api/config` remains the fallback for
+ * a document that wasn't rendered through the Worker.
+ *
+ * Pass `{ refresh: true }` to force a fresh read (the admin dashboard does this
+ * after saving settings).
+ */
+export function getConfig({ refresh = false } = {}) {
+  if (refresh) configPromise = null;
+  if (!configPromise) {
+    const inline = refresh ? null : readInlineConfig();
+    configPromise = inline
+      ? Promise.resolve(inline)
+      : api("/api/config").then((r) => r.data);
+  }
+  return configPromise;
+}
+
+/** Read the config the Worker embedded in the document, if it's there. */
+function readInlineConfig() {
+  const meta = document.querySelector('meta[name="app-config"]');
+  const raw = meta && meta.getAttribute("content");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Render a member's contact as a safe link or plain text. */

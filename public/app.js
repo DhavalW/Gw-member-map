@@ -75,14 +75,7 @@ init().catch((err) => console.error("init failed", err));
 
 async function init() {
   CONFIG = await getConfig();
-  const appName = CONFIG.appName || "Midhrami Studios Member Map";
-  document.title = appName;
-  document.getElementById("app-name").textContent = appName;
-  const community = document.getElementById("community-link");
-  if (community && CONFIG.communityUrl) {
-    community.href = CONFIG.communityUrl;
-    community.textContent = CONFIG.communityName || "Midhrami Studios";
-  }
+  applyBranding();
 
   initMap();
   wireCredit();
@@ -90,6 +83,26 @@ async function init() {
   wireForm();
   wireSuccess();
   await loadMembers();
+}
+
+/**
+ * Apply the community branding to the page chrome.
+ *
+ * The Worker already rendered these values into the HTML, so this is normally
+ * a no-op that re-sets identical text. It stays as the fallback for a document
+ * served without that step, and never substitutes a placeholder name: a slot
+ * with no configured value is left blank rather than showing someone else's
+ * branding.
+ */
+function applyBranding() {
+  if (CONFIG.appName) {
+    document.title = CONFIG.appName;
+    document.getElementById("app-name").textContent = CONFIG.appName;
+  }
+  const community = document.getElementById("community-link");
+  if (!community) return;
+  if (CONFIG.communityUrl) community.href = CONFIG.communityUrl;
+  if (CONFIG.communityName) community.textContent = CONFIG.communityName;
 }
 
 // --- Main map -------------------------------------------------------------

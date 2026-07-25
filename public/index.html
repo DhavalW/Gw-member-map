@@ -4,7 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
-  <title>Midhrami Studios Member Map</title>
+  <!-- Branding slots. The Worker fills these in per deployment before the page
+       is sent (src/branding.ts); they intentionally ship blank so no community
+       ever sees another's name flash up first. -->
+  <title data-brand="appName"></title>
+  <meta name="app-config" content="" />
   <meta name="description" content="An opt-in community member directory shown on a world map." />
   <link rel="stylesheet" href="/vendor/leaflet.css" />
   <link rel="stylesheet" href="/vendor/MarkerCluster.css" />
@@ -15,8 +19,9 @@
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <h1 id="app-name">Midhrami Studios Member Map</h1>
-        <a id="community-link" class="brand-link" href="https://midhrami.com" target="_blank" rel="noopener noreferrer">Midhrami Studios</a>
+        <h1 id="app-name" data-brand="appName"></h1>
+        <a id="community-link" class="brand-link" data-brand="communityName" data-brand-href="communityUrl"
+           href="/" target="_blank" rel="noopener noreferrer"></a>
       </div>
       <span class="count" id="member-count" aria-live="polite"></span>
       <div class="credit">Made by
