@@ -2,8 +2,8 @@
 #
 # This file ships inside the repo on purpose: when someone stands up their own
 # copy (e.g. via the "Deploy to Cloudflare" button, which clones the repo into
-# their GitHub account), this workflow comes along for the ride. On a schedule
-# it fetches the upstream main branch and pushes it into the clone's default
+# their GitHub account), this workflow comes along for the ride. Once a day it
+# fetches the upstream main branch and pushes it into the clone's default
 # branch. That push triggers the clone's own Cloudflare Workers Builds CI/CD,
 # so the deployment updates automatically too — no access to the clone's
 # GitHub account or Cloudflare account is ever required.
@@ -30,7 +30,7 @@ name: Sync from upstream
 
 on:
   schedule:
-    - cron: '23 */6 * * *' # every 6 hours
+    - cron: '23 4 * * *' # daily at 04:23 UTC
   workflow_dispatch:
 
 permissions:

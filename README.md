@@ -162,7 +162,7 @@ Settings → Variables and Secrets**, or with `wrangler secret put <NAME>`.
 
 The repo ships with a GitHub Actions workflow
 ([`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml))
-that travels with every clone. In your copy it runs every 6 hours, pulls the
+that travels with every clone. In your copy it runs once a day, pulls the
 latest `main` from this upstream repo, and pushes it to your clone — and since
 Workers Builds redeploys on every push, **your deployment updates
 automatically** whenever this project does. You never have to maintain or
