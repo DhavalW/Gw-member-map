@@ -18,6 +18,7 @@ async function init() {
   CONFIG = await getConfig();
   applyBranding();
   if (!CONFIG.adminConfigured) {
+    renderMissingSecrets();
     show("not-configured");
     return;
   }
@@ -27,6 +28,30 @@ async function init() {
   } else {
     showLogin();
   }
+}
+
+/**
+ * Say exactly what is wrong with each required secret, so a half-configured
+ * deployment (typo'd name, blank value, Secrets Store binding, secrets on a
+ * different Worker) doesn't present as "set both and it still doesn't work".
+ */
+const SECRET_PROBLEM_TEXT = {
+  missing: " — this Worker has no secret with that name. If you added it and it isn’t here, it most likely went to a different Worker or to the account-level Secrets Store.",
+  empty: " — the secret exists but its value is empty. Re-enter it with a real value.",
+  unreadable: " — bound via the account-level Secrets Store, which this app can’t read (and which the next deploy removes). Re-add it directly on the Worker with type “Secret”.",
+};
+
+function renderMissingSecrets() {
+  const box = document.getElementById("nc-missing");
+  const problems = Array.isArray(CONFIG.adminSecretProblems) ? CONFIG.adminSecretProblems : [];
+  if (!box || problems.length === 0) return;
+  box.textContent = "";
+  const list = el("ul");
+  for (const p of problems) {
+    list.append(el("li", {}, [el("code", {}, p.name), SECRET_PROBLEM_TEXT[p.problem] || " — not usable."]));
+  }
+  box.append("What the Worker sees right now:", list);
+  if (problems.length === 1) box.append("The other secret is fine.");
 }
 
 /**
