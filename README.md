@@ -251,10 +251,9 @@ npx wrangler secret list        # what the config's Worker actually holds
      prompt after adding them.
   3. **Added as *build* variables** (*Settings → Build → Variables and
      secrets*), which exist only during the build, not at runtime.
-  4. **Added as type "Text"** — plain-text variables are replaced by
-     `wrangler.json`'s `vars` on every deploy (this project deploys on every
-     push plus a daily auto-sync). `keep_vars: true` now softens this, but
-     type **Secret** is correct for these two regardless.
+  4. **Added as type "Text"** — with `keep_vars: true` set and no `vars`
+     declared in `wrangler.json`, plain-text variables do survive deploys
+     nowadays, but type **Secret** is still the correct type for these two.
 
 Adding a secret in the dashboard deploys a new version when you confirm — no
 manual redeploy is needed; the change is live within seconds. From the CLI:
@@ -284,8 +283,9 @@ is only needed when bumping the Leaflet version).
 All of the settings below can be configured **from the admin dashboard** (see
 [Dashboard settings](#dashboard-configurable-settings)) — that's the
 recommended way, and it requires no redeploy. The matching deployment
-variables/secrets are still honoured as the initial value for a fresh deploy;
-a value saved from the dashboard always takes precedence.
+variables/secrets are still honoured as the fallback when nothing has been
+saved from the dashboard; a value saved from the dashboard always takes
+precedence.
 
 | Setting | Type | Effect |
 | ------- | ---- | ------ |
@@ -297,15 +297,21 @@ a value saved from the dashboard always takes precedence.
 | `TURNSTILE_SITE_KEY` | var | **Optional.** Public [Turnstile](https://developers.cloudflare.com/turnstile/) key — shows the anti-spam widget. Unset means no widget. |
 | `TURNSTILE_SECRET` | secret | Turnstile secret — the Worker verifies the token. The CSP already allows `challenges.cloudflare.com`. |
 
-Set secrets with `wrangler secret put <NAME>`; set vars in `wrangler.json`.
+Set secrets with `wrangler secret put <NAME>`. Set vars in the Cloudflare
+dashboard (*Settings → Variables and Secrets*, type **Text**) — they survive
+deploys because `wrangler.json` sets `keep_vars: true` and deliberately
+declares no `vars` of its own.
 
-> **Why the optional vars aren't listed in `wrangler.json`:** the one-click
-> deploy wizard renders *every* var declared there as a field you have to fill
-> in before the deploy can proceed — a var declared as `""` becomes a required
-> prompt, not an optional one. `PUBLIC_BASE_URL` and `TURNSTILE_SITE_KEY` are
-> therefore left out of the config entirely so a fresh deploy asks for nothing
-> beyond the two auth secrets. Both are read as `env` values when present, so
-> adding them to `vars` still works if you'd rather pin them at deploy time.
+> **Why no vars are listed in `wrangler.json`:** a var declared there is
+> re-applied on **every deploy** and silently overwrites whatever value you
+> set in the dashboard — `keep_vars: true` only preserves vars the config file
+> *doesn't* declare. This project deploys on every push plus a daily
+> auto-sync, so a map rebranded via dashboard vars would keep snapping back to
+> the shipped defaults (the upstream "Midhrami Studios" branding). The
+> one-click deploy wizard also turns every declared var into a required prompt
+> before the deploy can proceed. All vars are therefore left out of the config
+> entirely: set them in the dashboard — or skip vars and use /admin →
+> Settings, which stores values in D1 and takes precedence anyway.
 
 > The **admin password** (`ADMIN_PASSWORD`) and **session secret**
 > (`SESSION_SECRET`) are intentionally **not** editable from the dashboard —

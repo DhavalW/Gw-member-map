@@ -30,8 +30,9 @@ function warnAdminSecretProblems(env: Env): { name: string; problem: string }[] 
  * resolves in this order:
  *
  *   1. the value saved in the `settings` D1 table (set from the dashboard);
- *   2. the matching deployment variable / secret in `wrangler.json` / Wrangler
- *      secrets (a fresh deploy's starting point);
+ *   2. the matching deployment variable / secret set on the Worker (Cloudflare
+ *      dashboard vars or Wrangler secrets — never `wrangler.json` `vars`,
+ *      which would overwrite dashboard-set values on every deploy);
  *   3. the hard-coded default below (ships as Midhrami Studios).
  *
  * The admin password and session secret are deliberately NOT in this list:
