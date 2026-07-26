@@ -2,17 +2,22 @@ export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
 
-  // Public vars (wrangler.json -> vars)
-  APP_NAME: string;
+  // Deployment vars. None are declared in `wrangler.json` — deliberately, for
+  // two reasons. First, a var declared there is re-applied on every deploy and
+  // silently overwrites whatever value the operator set in the Cloudflare
+  // dashboard (`keep_vars: true` only preserves vars the config file does NOT
+  // declare), so a rebranded deployment would snap back to the shipped
+  // defaults on the next push or daily auto-sync. Second, the "Deploy to
+  // Cloudflare" wizard turns every declared var into a field the operator has
+  // to fill in before the deploy can proceed. Set vars in the dashboard
+  // (Settings → Variables and Secrets, type "Text") or from /admin → Settings;
+  // left undefined they fall back to the defaults in `settings.ts`.
+  APP_NAME?: string;
   // Community this map belongs to (branding + links).
-  COMMUNITY_NAME: string;
-  COMMUNITY_URL: string;
-  // Optional vars — deliberately NOT declared in `wrangler.json`, because the
-  // "Deploy to Cloudflare" wizard turns every declared var into a field the
-  // operator has to fill in before the deploy can proceed. Left undefined they
-  // fall back to a sensible default (see `settings.ts`): the public base URL is
-  // derived from the incoming request, and an unset Turnstile key disables the
-  // widget. Both are still settable from /admin → Settings afterwards.
+  COMMUNITY_NAME?: string;
+  COMMUNITY_URL?: string;
+  // The public base URL is derived from the incoming request when unset; an
+  // unset Turnstile key disables the anti-spam widget.
   PUBLIC_BASE_URL?: string;
   TURNSTILE_SITE_KEY?: string;
 

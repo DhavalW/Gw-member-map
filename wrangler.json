@@ -19,10 +19,5 @@
       "database_name": "community-member-map",
       "migrations_dir": "migrations"
     }
-  ],
-  "vars": {
-    "APP_NAME": "Midhrami Studios Member Map",
-    "COMMUNITY_NAME": "Midhrami Studios",
-    "COMMUNITY_URL": "https://midhrami.com"
-  }
+  ]
 }

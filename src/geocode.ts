@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { getResolvedConfig } from "./settings";
 
 export interface GeocodeResult {
   label: string;
@@ -30,13 +31,19 @@ export async function geocode(
   url.searchParams.set("addressdetails", "0");
   url.searchParams.set("limit", String(Math.min(Math.max(limit, 1), 8)));
 
+  // Resolved settings (dashboard → env var → default), not raw env vars, so a
+  // deployment branded from the admin dashboard identifies as itself here too.
+  const cfg = await getResolvedConfig(env);
+  const appName = cfg.appName || "MemberMap";
+  const contactUrl = cfg.publicBaseUrl || "https://workers.dev";
+
   const res = await fetch(url.toString(), {
     headers: {
       // Nominatim's usage policy requires a descriptive User-Agent with a way
       // to make contact; a generic one risks being blocked outright.
-      "User-Agent": `${env.APP_NAME || "MemberMap"} member directory (+${env.PUBLIC_BASE_URL || "https://workers.dev"})`,
+      "User-Agent": `${appName} member directory (+${contactUrl})`,
       "Accept-Language": "en",
-      "Referer": env.PUBLIC_BASE_URL || "https://workers.dev",
+      "Referer": contactUrl,
     },
     // Cache identical lookups at the edge to stay well within usage limits.
     cf: { cacheTtl: 60 * 60 * 24, cacheEverything: true },
