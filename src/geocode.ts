@@ -8,9 +8,24 @@ export interface GeocodeResult {
 }
 
 /**
- * Forward-geocode a place name via OpenStreetMap Nominatim. Used both by the
- * client search box (through our proxy, so the browser never hits Nominatim
- * directly) and as a server-side fallback when a submission has no map pin.
+ * Turn a dashboard-configurable text value into something safe to put in an
+ * HTTP header. Header values are ISO-8859-1 byte strings: `fetch` throws a
+ * TypeError for any character above U+00FF (curly quotes, dashes, emoji,
+ * non-Latin scripts…) and for CR/LF, and admins type branding text freely —
+ * so an unsanitised value here would take the whole geocoder down (this has
+ * happened). Anything outside printable ASCII is collapsed to a space; an
+ * empty result falls back to `fallback`.
+ */
+function headerSafe(value: string, fallback: string): string {
+  const safe = value.replace(/[^\x20-\x7E]+/g, " ").replace(/ +/g, " ").trim();
+  return safe || fallback;
+}
+
+/**
+ * Forward-geocode a place name via OpenStreetMap Nominatim, used by the
+ * location search boxes on the sign-up form, the member edit form, and the
+ * admin CSV import (all through our proxy, so the browser never hits
+ * Nominatim directly).
  *
  * Nominatim's usage policy requires an identifying User-Agent and modest
  * request rates; this proxy is for interactive lookups only.
@@ -33,9 +48,18 @@ export async function geocode(
 
   // Resolved settings (dashboard → env var → default), not raw env vars, so a
   // deployment branded from the admin dashboard identifies as itself here too.
-  const cfg = await getResolvedConfig(env);
-  const appName = cfg.appName || "MemberMap";
-  const contactUrl = cfg.publicBaseUrl || "https://workers.dev";
+  // The values are free-form admin input and go into HTTP headers below, so
+  // they MUST pass through headerSafe() — and a config-layer failure must
+  // never stop the lookup itself (location search worked before it ever
+  // depended on settings, and has to keep working if that dependency breaks).
+  let cfg: { appName?: string; publicBaseUrl?: string } = {};
+  try {
+    cfg = await getResolvedConfig(env);
+  } catch {
+    // fall through to the defaults below
+  }
+  const appName = headerSafe(cfg.appName || "", "MemberMap");
+  const contactUrl = headerSafe(cfg.publicBaseUrl || "", "https://workers.dev");
 
   const res = await fetch(url.toString(), {
     headers: {
