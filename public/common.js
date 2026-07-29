@@ -92,6 +92,105 @@ export function debounce(fn, ms) {
   };
 }
 
+// --- Location search -------------------------------------------------------
+// One implementation for every location box (sign-up form, member edit form,
+// admin edit dialog). The three copies this replaces drifted apart — the admin
+// dialog ended up with no search at all — so any future change lands in all
+// forms at once. Every failure mode (endpoint unreachable, upstream geocoder
+// down, no matches) tells the user what happened via the field hint instead
+// of silently showing no results.
+
+/**
+ * Attach a debounced, as-you-type location search to a text input.
+ *
+ *   input       — the text <input> to watch
+ *   results     — the <ul class="geo-results"> the suggestions render into
+ *   hint        — the field's hint element (its initial text is restored when
+ *                 a transient message clears); may be null
+ *   pinHint     — message shown when the search itself is unavailable
+ *   noMatchHint — message shown when the search worked but found nothing
+ *   onPick      — called with the chosen `{ label, lat, lng }` after the
+ *                 input's value has been set to the picked label
+ */
+export function wireLocationSearch({ input, results, hint, pinHint, noMatchHint, onPick }) {
+  const defaultHint = hint ? hint.textContent : "";
+  const setHint = (msg) => { if (hint) hint.textContent = msg || defaultHint; };
+
+  const search = debounce(async () => {
+    const q = input.value.trim();
+    if (q.length < 3) {
+      results.classList.remove("show");
+      results.replaceChildren();
+      setHint("");
+      return;
+    }
+    setHint("Searching…");
+
+    let resp;
+    try {
+      resp = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+    } catch (err) {
+      console.error("geocode request failed", err);
+      results.classList.remove("show");
+      setHint(pinHint);
+      return;
+    }
+
+    const { ok, status, data } = resp;
+    results.replaceChildren();
+
+    // Endpoint reachable but the upstream lookup failed (or returned
+    // non-JSON): tell the user instead of silently showing nothing. `detail`
+    // carries the upstream failure reason for the on-screen debug overlay.
+    if (!ok || data.error || !Array.isArray(data.results)) {
+      console.warn("geocode unavailable", { status, error: data.error, detail: data.detail });
+      results.classList.remove("show");
+      setHint(pinHint);
+      return;
+    }
+
+    if (data.results.length === 0) {
+      results.classList.remove("show");
+      setHint(noMatchHint);
+      return;
+    }
+
+    setHint("");
+    for (const r of data.results) {
+      const btn = el("button", { type: "button", text: r.label });
+      btn.addEventListener("click", () => {
+        input.value = r.label;
+        results.classList.remove("show");
+        onPick(r);
+      });
+      results.append(el("li", { role: "option" }, [btn]));
+    }
+    results.classList.add("show");
+  }, 350);
+
+  input.addEventListener("input", search);
+}
+
+/**
+ * One-shot lookup of a typed location to its best match, or null if the
+ * search is unavailable or found nothing. Used at save time as a fallback:
+ * a location the user typed but never picked from the dropdown (and whose
+ * pin they never moved) must still resolve to coordinates rather than the
+ * entry silently keeping its old ones.
+ */
+export async function resolveLocation(query) {
+  const q = (query || "").trim();
+  if (q.length < 2) return null;
+  try {
+    const { ok, data } = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+    if (!ok || data.error || !Array.isArray(data.results)) return null;
+    const r = data.results[0];
+    return r && Number.isFinite(r.lat) && Number.isFinite(r.lng) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read the credential the edit page was opened with (#k=... in the URL). */
 export function readEditCredential() {
   const hash = location.hash.startsWith("#") ? location.hash.slice(1) : "";

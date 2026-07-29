@@ -1,4 +1,4 @@
-import { api, configureLeafletIcons, contactNode, createPhotoField, debounce, debugToggle, el, getConfig, installDebugOverlay, memberImageUrl, uploadMemberImage } from "/common.js";
+import { api, configureLeafletIcons, contactNode, createPhotoField, debounce, debugToggle, el, getConfig, installDebugOverlay, memberImageUrl, resolveLocation, uploadMemberImage, wireLocationSearch } from "/common.js";
 import { MOCK_MEMBERS } from "/mock-data.js"; // DEMO — sample pins, hidden unless toggled on in the debug panel
 
 const L = window.L;
@@ -32,6 +32,8 @@ const state = {
   pickMap: null,
   pickMarker: null,
   picked: null, // { lat, lng }
+  resolvedLabel: "", // location text the current pin was derived from
+  pinTouched: false, // true once the pin was placed by hand (click / drag)
   setSheetOpen: () => {}, // mobile bottom-sheet control, bound in wireSheet()
 };
 
@@ -415,7 +417,10 @@ function initPickMap() {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
-  map.on("click", (e) => setPick(e.latlng.lat, e.latlng.lng));
+  map.on("click", (e) => {
+    state.pinTouched = true;
+    setPick(e.latlng.lat, e.latlng.lng);
+  });
   state.pickMap = map;
   // The container was hidden until the dialog opened, so Leaflet may have
   // measured it at zero size; recompute once layout settles or tiles won't load.
@@ -427,6 +432,7 @@ function setPick(lat, lng, recenter = false) {
   if (!state.pickMarker) {
     state.pickMarker = L.marker([lat, lng], { draggable: true }).addTo(state.pickMap);
     state.pickMarker.on("dragend", () => {
+      state.pinTouched = true;
       const ll = state.pickMarker.getLatLng();
       state.picked = { lat: ll.lat, lng: ll.lng };
     });
@@ -437,67 +443,22 @@ function setPick(lat, lng, recenter = false) {
   clearError("location_name");
 }
 
+// Shared location search (see wireLocationSearch in common.js): every failure
+// mode — endpoint unreachable, upstream geocoder down, no matches — tells the
+// user what happened via the field hint instead of silently showing nothing.
 function wireGeocode() {
-  const input = document.getElementById("location_name");
-  const results = document.getElementById("geo-results");
-  const hint = document.querySelector("#f-location_name .hint");
-  const defaultHint = hint ? hint.textContent : "";
-  const setHint = (msg) => { if (hint) hint.textContent = msg || defaultHint; };
-  const PIN_HINT = "Couldn’t search locations right now — click the map below to drop your pin.";
-
-  const search = debounce(async () => {
-    const q = input.value.trim();
-    if (q.length < 3) {
-      results.classList.remove("show");
-      results.replaceChildren();
-      setHint("");
-      return;
-    }
-    setHint("Searching…");
-
-    let resp;
-    try {
-      resp = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
-    } catch (err) {
-      console.error("geocode request failed", err);
-      results.classList.remove("show");
-      setHint(PIN_HINT);
-      return;
-    }
-
-    const { ok, status, data } = resp;
-    results.replaceChildren();
-
-    // Endpoint reachable but the upstream lookup failed (or returned non-JSON):
-    // tell the user instead of silently showing nothing.
-    if (!ok || data.error || !Array.isArray(data.results)) {
-      console.warn("geocode unavailable", { status, error: data.error });
-      results.classList.remove("show");
-      setHint(PIN_HINT);
-      return;
-    }
-
-    const items = data.results;
-    if (items.length === 0) {
-      results.classList.remove("show");
-      setHint("No matches — try a different spelling, or click the map to drop your pin.");
-      return;
-    }
-
-    setHint("");
-    for (const r of items) {
-      const btn = el("button", { type: "button", text: r.label });
-      btn.addEventListener("click", () => {
-        input.value = r.label;
-        setPick(r.lat, r.lng, true);
-        results.classList.remove("show");
-      });
-      results.append(el("li", { role: "option" }, [btn]));
-    }
-    results.classList.add("show");
-  }, 350);
-
-  input.addEventListener("input", search);
+  wireLocationSearch({
+    input: document.getElementById("location_name"),
+    results: document.getElementById("geo-results"),
+    hint: document.querySelector("#f-location_name .hint"),
+    pinHint: "Couldn’t search locations right now — click the map below to drop your pin.",
+    noMatchHint: "No matches — try a different spelling, or click the map to drop your pin.",
+    onPick: (r) => {
+      setPick(r.lat, r.lng, true);
+      state.resolvedLabel = r.label;
+      state.pinTouched = false;
+    },
+  });
 }
 
 function maybeLoadTurnstile() {
@@ -562,6 +523,17 @@ async function onSubmit(e) {
   if (!consent) {
     consentErr.style.display = "block";
     return;
+  }
+  // A location typed straight into the field (no dropdown pick, no manual pin
+  // placement) must still resolve: geocode it now instead of rejecting the
+  // submission or keeping a pin that no longer matches the text.
+  const typedLoc = document.getElementById("location_name").value.trim();
+  if (typedLoc && typedLoc !== state.resolvedLabel && !state.pinTouched) {
+    const r = await resolveLocation(typedLoc);
+    if (r) {
+      setPick(r.lat, r.lng, true);
+      state.resolvedLabel = r.label;
+    }
   }
   if (!state.picked) {
     showFieldErrors({ location_name: "Pick your location on the map or choose a search result." });
@@ -663,6 +635,8 @@ function showSuccess(data) {
 
 function resetPick() {
   state.picked = null;
+  state.resolvedLabel = "";
+  state.pinTouched = false;
   if (state.pickMarker) {
     state.pickMap.removeLayer(state.pickMarker);
     state.pickMarker = null;
