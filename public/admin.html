@@ -139,8 +139,10 @@
         <button class="btn small" data-bulk="publish">Publish</button>
         <button class="btn small" data-bulk="pending">Mark pending</button>
         <button class="btn small" data-bulk="hide">Hide</button>
-        <button class="btn small" data-bulk="consent_on">Show on map</button>
-        <button class="btn small" data-bulk="consent_off">Remove from map</button>
+        <button class="btn small" data-bulk="consent_on"
+          title="Opt these members in: once published, their entries are visible to anyone with the link to the member map">Show on map</button>
+        <button class="btn small" data-bulk="consent_off"
+          title="Opt these members out: their entries are hidden from the member map, but not deleted">Remove from map</button>
         <button class="btn small" id="bulk-merge" title="Combine the selected records into one">Merge…</button>
         <button class="btn small" id="bulk-export">Export selected</button>
         <button class="btn small danger" data-bulk="delete">Delete</button>
@@ -221,6 +223,11 @@
             <input type="checkbox" id="a-consent" /><label for="a-consent">Opted in (public)</label>
           </div>
         </div>
+        <p class="consent-hint">
+          “Public” means this entry (name, location, bio and contact) is visible to
+          anyone with the link to the member map. It only appears there when the
+          status is <strong>Published</strong> <em>and</em> this box is ticked.
+        </p>
       </div>
       <div class="dialog-foot">
         <button type="button" class="btn danger" id="admin-delete">Delete</button>
@@ -292,7 +299,9 @@
               <li><strong>Email</strong> — kept private (never shown on the map).</li>
               <li><strong>Bio</strong> — a short description.</li>
               <li><strong>Status</strong> — <code>published</code>, <code>pending</code> or <code>hidden</code> (defaults to published).</li>
-              <li><strong>Consent</strong> — <code>Yes</code>/<code>No</code> for public visibility (defaults to Yes).</li>
+              <li><strong>Consent</strong> — <code>Yes</code>/<code>No</code> for public visibility
+                (defaults to Yes). <code>Yes</code> means the entry is visible to anyone with the
+                link to the member map.</li>
               <li><strong>Image</strong> — each member’s photo filename, when importing photos.</li>
             </ul>
             <p class="muted">Tip: export the current directory first (with “Photos (.zip)”

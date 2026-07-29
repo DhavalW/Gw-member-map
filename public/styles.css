@@ -436,6 +436,8 @@ table.admin .col-actions { text-align: right; white-space: nowrap; }
 .status-row { display: flex; gap: 16px; align-items: center; }
 .status-row .field { margin: 0; }
 .status-row .checkbox { margin-top: 18px; }
+/* Explains what "public" means, under the admin consent checkbox. */
+.consent-hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
 
 /* Dialog footers push the action buttons to the right (was inline flex:1). */
 .dialog-foot .spacer { flex: 1; }
