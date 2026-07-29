@@ -357,6 +357,32 @@
     </div>
   </dialog>
 
+  <!-- Re-login dialog: shown when an admin API call answers 401 mid-session
+       (the session cookie expired), so work in progress — e.g. a reviewed
+       CSV import — isn't lost to a full page reload. -->
+  <dialog id="relogin-dialog" aria-labelledby="relogin-title">
+    <form id="relogin-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="relogin-title">Session expired</h2><span class="spacer"></span>
+        <button type="button" class="icon-btn" id="relogin-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <p class="muted">Your admin session has expired. Sign in again to pick up
+          right where you left off — nothing you were working on is lost.</p>
+        <div class="notice err hidden" id="relogin-error"></div>
+        <div class="field">
+          <label for="relogin-password">Admin password</label>
+          <input type="password" id="relogin-password" autocomplete="current-password" required />
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="relogin-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="relogin-submit">Sign in</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Settings dialog (branding + integrations) -->
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <form id="settings-form" method="dialog" novalidate>

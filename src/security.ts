@@ -47,13 +47,15 @@ async function hmacSign(secret: string, data: string): Promise<string> {
   return base64url(sig);
 }
 
-const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
+export const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 
 /** Create a signed admin session token: base64url(payload).signature */
 export async function createAdminSession(secret: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify({
     role: "admin",
-    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    iat: now,
+    exp: now + SESSION_TTL_SECONDS,
     nonce: randomToken(8),
   });
   const b64 = base64url(encoder.encode(payload));
@@ -67,6 +69,25 @@ export async function verifyAdminSession(
 ): Promise<boolean> {
   const payload = await verifySigned(token, secret);
   return payload?.role === "admin";
+}
+
+/**
+ * When a valid admin session was issued (seconds since epoch), or null for a
+ * missing/invalid/expired token. Used to decide when to re-issue the cookie so
+ * an active admin's session slides forward instead of dying a hard death
+ * exactly `SESSION_TTL_SECONDS` after the original login — which used to cut
+ * off long dashboard sessions mid-task (e.g. a large CSV import) with a bare
+ * "Unauthorized".
+ */
+export async function adminSessionIssuedAt(
+  token: string | undefined,
+  secret: string,
+): Promise<number | null> {
+  const payload = await verifySigned(token, secret);
+  if (payload?.role !== "admin") return null;
+  if (typeof payload.iat === "number") return payload.iat;
+  // Tokens minted before `iat` existed: derive the issue time from `exp`.
+  return typeof payload.exp === "number" ? payload.exp - SESSION_TTL_SECONDS : null;
 }
 
 const MEMBER_SESSION_TTL_SECONDS = 60 * 60; // 1 hour after magic-link click

@@ -101,6 +101,9 @@ export function detectField(header) {
     return "image";
   if (h.includes("latitude") || h === "lat") return "lat";
   if (h.includes("longitude") || h === "lng" || h === "lon") return "lng";
+  // Our own export splits the contact into label + URL columns; match the URL
+  // column before the broad "contact" rule would swallow it.
+  if (h.replace(/[^a-z0-9]/g, "").includes("contacturl")) return "contactUrl";
   if (h.includes("contact") || h.includes("preferred") || h.includes("link"))
     return "contact";
   if (h === "bio" || h.includes("about")) return "bio";
