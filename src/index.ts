@@ -198,9 +198,12 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     } catch (err) {
       // Upstream (Nominatim) failed or was rate-limited. Tell the client so it
       // can prompt the user to drop a pin on the map instead of silently
-      // showing no results.
+      // showing no results. `detail` carries the upstream reason (e.g.
+      // "Nominatim responded 403 Forbidden") so a broken deployment can be
+      // diagnosed from the browser's debug overlay, without Worker log access.
       console.error("Geocode failed", err);
-      return json({ results: [], error: "geocode_unavailable" }, 200);
+      const detail = err instanceof Error ? err.message : String(err);
+      return json({ results: [], error: "geocode_unavailable", detail }, 200);
     }
   }
 

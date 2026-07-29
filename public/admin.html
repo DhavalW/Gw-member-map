@@ -192,7 +192,10 @@
         <div class="field" id="f-display_name"><label for="a-name">Name</label>
           <input type="text" id="a-name" maxlength="80" /><div class="err" data-err></div></div>
         <div class="field" id="f-location_name"><label for="a-loc">Location</label>
-          <input type="text" id="a-loc" maxlength="120" /><div class="err" data-err></div></div>
+          <input type="text" id="a-loc" maxlength="120" autocomplete="off" />
+          <div class="hint">Type to search, pick a result, or click the map to move the pin.</div>
+          <ul class="geo-results" id="admin-geo-results"></ul>
+          <div class="err" data-err></div></div>
         <div class="field-row">
           <div class="field" id="f-lat"><label for="a-lat">Latitude</label>
             <input type="text" id="a-lat" /><div class="err" data-err></div></div>

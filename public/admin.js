@@ -1,4 +1,4 @@
-import { api, compressImageToBlob, configureLeafletIcons, copyText, createPhotoField, deleteMemberImage, downloadBlob, downloadFile, el, getConfig, memberImageUrl, uploadMemberImage } from "/common.js";
+import { api, compressImageToBlob, configureLeafletIcons, copyText, createPhotoField, deleteMemberImage, downloadBlob, downloadFile, el, getConfig, memberImageUrl, resolveLocation, uploadMemberImage, wireLocationSearch } from "/common.js";
 import { mapHeaders, parseCsvObjects, toCsv } from "/csv.js";
 import { buildZip, readZip } from "/zip.js";
 
@@ -10,7 +10,11 @@ let MEMBERS = [];
 let editing = null; // currently edited member id
 let editPhoto = null; // profile-photo picker in the edit dialog
 const selected = new Set(); // selected public ids (persists across filtering)
-const pick = { map: null, marker: null };
+// resolvedLabel is the location text the current lat/lng were derived from;
+// coordsTouched flips when the admin sets coordinates by hand (map click,
+// marker drag, or editing the lat/lng fields). Together they let onSave know
+// whether a typed location still needs geocoding.
+const pick = { map: null, marker: null, resolvedLabel: "", coordsTouched: false };
 
 init().catch((err) => console.error(err));
 
@@ -395,6 +399,28 @@ function wireEditDialog() {
   editPhoto = createPhotoField({ hint: "Square works best. JPG, PNG or WebP — resized automatically." });
   editPhoto.onError(showEditError);
   document.getElementById("admin-photo-holder").append(editPhoto.element);
+
+  // Location search on the dialog's Location field — same behaviour as the
+  // sign-up and member edit forms. Picking a result moves the pin; without
+  // this the field was a plain text box and typing resolved nothing.
+  wireLocationSearch({
+    input: document.getElementById("a-loc"),
+    results: document.getElementById("admin-geo-results"),
+    hint: document.querySelector("#f-location_name .hint"),
+    pinHint: "Couldn’t search locations right now — click the map below to move the pin.",
+    noMatchHint: "No matches — try a different spelling, or click the map to move the pin.",
+    onPick: (r) => {
+      setLatLng(r.lat, r.lng);
+      pick.map.setView([r.lat, r.lng], 9);
+      pick.resolvedLabel = r.label;
+      pick.coordsTouched = false;
+    },
+  });
+
+  // Hand-edited coordinates are an explicit choice: don't geocode over them.
+  for (const id of ["a-lat", "a-lng"]) {
+    document.getElementById(id).addEventListener("input", () => { pick.coordsTouched = true; });
+  }
 }
 
 function showEditError(msg) {
@@ -416,6 +442,9 @@ function openEdit(m) {
   document.getElementById("a-status").value = m.status;
   document.getElementById("a-consent").checked = !!m.consentPublic;
   document.getElementById("a-editlink").value = "";
+  pick.resolvedLabel = m.location || "";
+  pick.coordsTouched = false;
+  document.getElementById("admin-geo-results").classList.remove("show");
   document.getElementById("admin-edit-error").style.display = "none";
   document.querySelectorAll("#edit-dialog .field.has-error").forEach((n) => n.classList.remove("has-error"));
 
@@ -457,7 +486,10 @@ function initPickMap(lat, lng) {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
-    map.on("click", (e) => setLatLng(e.latlng.lat, e.latlng.lng));
+    map.on("click", (e) => {
+      pick.coordsTouched = true;
+      setLatLng(e.latlng.lat, e.latlng.lng);
+    });
     pick.map = map;
   } else {
     pick.map.invalidateSize();
@@ -472,6 +504,7 @@ function setLatLng(lat, lng) {
   if (!pick.marker) {
     pick.marker = L.marker([lat, lng], { draggable: true }).addTo(pick.map);
     pick.marker.on("dragend", () => {
+      pick.coordsTouched = true;
       const ll = pick.marker.getLatLng();
       document.getElementById("a-lat").value = ll.lat.toFixed(6);
       document.getElementById("a-lng").value = ll.lng.toFixed(6);
@@ -496,6 +529,20 @@ async function onSave(e) {
   e.preventDefault();
   const errBox = document.getElementById("admin-edit-error");
   errBox.style.display = "none";
+
+  // A location typed straight into the field (no dropdown pick, no manual
+  // pin/coordinate change) must still resolve: geocode it now so the entry
+  // doesn't silently keep its old coordinates under a new location name.
+  const typedLoc = document.getElementById("a-loc").value.trim();
+  if (typedLoc && typedLoc !== pick.resolvedLabel && !pick.coordsTouched) {
+    const r = await resolveLocation(typedLoc);
+    if (r) {
+      setLatLng(r.lat, r.lng);
+      if (pick.map) pick.map.setView([r.lat, r.lng], 9);
+      pick.resolvedLabel = r.label;
+    }
+  }
+
   const payload = {
     display_name: document.getElementById("a-name").value,
     location_name: document.getElementById("a-loc").value,

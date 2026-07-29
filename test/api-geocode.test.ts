@@ -91,10 +91,13 @@ describe("GET /api/geocode", () => {
     upstreamStatus = 403;
     const res = await worker.fetch(geocodeRequest("Pune"), makeEnv(stubDb([])));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { results: unknown[]; error?: string };
+    const body = (await res.json()) as { results: unknown[]; error?: string; detail?: string };
     expect(body.results).toEqual([]);
     // The front-ends key off this exact value to tell the user to drop a pin.
     expect(body.error).toBe("geocode_unavailable");
+    // The upstream reason ships alongside, so a broken deployment can be
+    // diagnosed from the browser's debug overlay without Worker log access.
+    expect(body.detail).toContain("403");
   });
 
   it("still resolves locations when the database is unavailable", async () => {
