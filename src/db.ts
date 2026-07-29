@@ -275,13 +275,16 @@ export async function imagesPresent(
   env: Env,
   publicIds: string[],
 ): Promise<Set<string>> {
-  if (publicIds.length === 0) return new Set();
-  const { results } = await env.DB.prepare(
-    `SELECT public_id FROM member_images WHERE public_id IN (${placeholders(publicIds.length)})`,
-  )
-    .bind(...publicIds)
-    .all<{ public_id: string }>();
-  return new Set(results.map((r) => r.public_id));
+  const out = new Set<string>();
+  for (const ids of chunkIds(publicIds)) {
+    const { results } = await env.DB.prepare(
+      `SELECT public_id FROM member_images WHERE public_id IN (${placeholders(ids.length)})`,
+    )
+      .bind(...ids)
+      .all<{ public_id: string }>();
+    for (const r of results) out.add(r.public_id);
+  }
+  return out;
 }
 
 /**
@@ -430,6 +433,18 @@ function placeholders(n: number): string {
   return new Array(n).fill("?").join(",");
 }
 
+// D1 allows at most 100 bound parameters per statement, so any `IN (?,…)`
+// list must be chunked — otherwise bulk actions fail outright once more than
+// ~100 members are selected (e.g. "select all → publish" on a large import).
+// 90 leaves headroom for the non-id parameters bound alongside the list.
+const ID_CHUNK = 90;
+
+function chunkIds(ids: string[]): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) out.push(ids.slice(i, i + ID_CHUNK));
+  return out;
+}
+
 // ---- Runtime settings (dashboard-configurable branding + integrations) ----
 
 /** Read every saved setting override into a `key -> value` map. */
@@ -516,12 +531,15 @@ export async function bulkSetStatus(
   status: string,
 ): Promise<void> {
   if (publicIds.length === 0) return;
-  await env.DB.prepare(
-    `UPDATE members SET status = ?, updated_at = ?
-       WHERE public_id IN (${placeholders(publicIds.length)})`,
-  )
-    .bind(status, Date.now(), ...publicIds)
-    .run();
+  const now = Date.now();
+  await env.DB.batch(
+    chunkIds(publicIds).map((ids) =>
+      env.DB.prepare(
+        `UPDATE members SET status = ?, updated_at = ?
+           WHERE public_id IN (${placeholders(ids.length)})`,
+      ).bind(status, now, ...ids),
+    ),
+  );
 }
 
 /** Toggle public consent on many members at once. */
@@ -531,12 +549,15 @@ export async function bulkSetConsent(
   consent: number,
 ): Promise<void> {
   if (publicIds.length === 0) return;
-  await env.DB.prepare(
-    `UPDATE members SET consent_public = ?, updated_at = ?
-       WHERE public_id IN (${placeholders(publicIds.length)})`,
-  )
-    .bind(consent, Date.now(), ...publicIds)
-    .run();
+  const now = Date.now();
+  await env.DB.batch(
+    chunkIds(publicIds).map((ids) =>
+      env.DB.prepare(
+        `UPDATE members SET consent_public = ?, updated_at = ?
+           WHERE public_id IN (${placeholders(ids.length)})`,
+      ).bind(consent, now, ...ids),
+    ),
+  );
 }
 
 /** Delete many members at once, including any stored profile images. */
@@ -545,9 +566,13 @@ export async function bulkDeleteMembers(
   publicIds: string[],
 ): Promise<void> {
   if (publicIds.length === 0) return;
-  const ph = placeholders(publicIds.length);
-  await env.DB.batch([
-    env.DB.prepare(`DELETE FROM member_images WHERE public_id IN (${ph})`).bind(...publicIds),
-    env.DB.prepare(`DELETE FROM members WHERE public_id IN (${ph})`).bind(...publicIds),
-  ]);
+  await env.DB.batch(
+    chunkIds(publicIds).flatMap((ids) => {
+      const ph = placeholders(ids.length);
+      return [
+        env.DB.prepare(`DELETE FROM member_images WHERE public_id IN (${ph})`).bind(...ids),
+        env.DB.prepare(`DELETE FROM members WHERE public_id IN (${ph})`).bind(...ids),
+      ];
+    }),
+  );
 }

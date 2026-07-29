@@ -2,6 +2,8 @@ import type { Env, MemberRow } from "./types";
 import { brandDocument, isBrandableDocument, looksLikeDocument } from "./branding";
 import {
   ADMIN_COOKIE,
+  SESSION_TTL_SECONDS,
+  adminSessionIssuedAt,
   createAdminSession,
   isAdminConfigured,
   parseCookies,
@@ -130,7 +132,51 @@ function json(data: unknown, status = 200, extra: Record<string, string> = {}): 
 // API router
 // ---------------------------------------------------------------------------
 
+// Re-issue the admin session cookie once the current one is older than this.
+// Sessions used to expire a hard 12 hours after login with no renewal, so a
+// long dashboard session (or a long-running flow like the CSV import wizard)
+// would suddenly start failing with "Unauthorized" mid-task. With sliding
+// renewal, every admin API call on a session older than this threshold gets a
+// fresh 12-hour cookie — an active admin stays signed in, while an idle
+// session still expires 12 hours after its last activity.
+const SESSION_RENEW_AFTER_SECONDS = 15 * 60;
+
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const res = await routeApi(request, env, url);
+
+  // Sliding admin-session renewal. Skipped for login/logout, which manage the
+  // cookie themselves, and for failed responses (a 401 must not re-arm the
+  // cookie). Only /api/admin/* responses are touched — they are all no-store,
+  // so a Set-Cookie can never leak into a shared cache.
+  const { pathname } = url;
+  if (
+    res.ok &&
+    pathname.startsWith("/api/admin/") &&
+    pathname !== "/api/admin/login" &&
+    pathname !== "/api/admin/logout"
+  ) {
+    const renewed = await maybeRenewAdminSession(request, env);
+    if (renewed) {
+      const headers = new Headers(res.headers);
+      headers.append("Set-Cookie", renewed);
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    }
+  }
+  return res;
+}
+
+/** A fresh session cookie when the caller's valid session is due for renewal. */
+async function maybeRenewAdminSession(request: Request, env: Env): Promise<string | null> {
+  if (!env.SESSION_SECRET) return null;
+  const token = parseCookies(request.headers.get("Cookie"))[ADMIN_COOKIE];
+  if (!token) return null;
+  const iat = await adminSessionIssuedAt(token, env.SESSION_SECRET);
+  if (iat === null) return null;
+  if (Math.floor(Date.now() / 1000) - iat < SESSION_RENEW_AFTER_SECONDS) return null;
+  return sessionCookie(await createAdminSession(env.SESSION_SECRET), SESSION_TTL_SECONDS);
+}
+
+async function routeApi(request: Request, env: Env, url: URL): Promise<Response> {
   const { pathname } = url;
   const method = request.method.toUpperCase();
 
@@ -948,7 +994,7 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": sessionCookie(token, 60 * 60 * 12),
+      "Set-Cookie": sessionCookie(token, SESSION_TTL_SECONDS),
       "Cache-Control": "no-store",
     },
   });

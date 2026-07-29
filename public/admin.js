@@ -120,11 +120,88 @@ async function loadDashboard() {
   wireImport();
   wireMerge();
   wireSettings();
+  wireRelogin();
 }
 
 async function onLogout() {
   await api("/api/admin/logout", { method: "POST" });
   location.reload();
+}
+
+// --- Mid-session re-authentication ----------------------------------------
+// The admin session cookie can expire while the dashboard is open (it slides
+// forward on activity server-side, but a long-idle tab still lapses). Rather
+// than surfacing a bare "Unauthorized" and losing in-progress work — worst
+// during the import wizard, whose geocoded review takes minutes to rebuild —
+// a 401 opens a small sign-in dialog and the failed call is retried once.
+
+const relogin = { promise: null, resolve: null, ok: false };
+
+/** Prompt for the password again. Resolves true on success, false on cancel. */
+function ensureAdminSession() {
+  if (!relogin.promise) {
+    relogin.promise = new Promise((resolve) => { relogin.resolve = resolve; });
+    relogin.ok = false;
+    document.getElementById("relogin-error").style.display = "none";
+    document.getElementById("relogin-password").value = "";
+    document.getElementById("relogin-dialog").showModal();
+  }
+  return relogin.promise;
+}
+
+function wireRelogin() {
+  const dialog = document.getElementById("relogin-dialog");
+  document.getElementById("relogin-close").addEventListener("click", () => dialog.close());
+  document.getElementById("relogin-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("relogin-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errBox = document.getElementById("relogin-error");
+    errBox.style.display = "none";
+    const btn = document.getElementById("relogin-submit");
+    btn.disabled = true;
+    const password = document.getElementById("relogin-password").value;
+    const { ok, data } = await api("/api/admin/login", { method: "POST", body: { password } });
+    btn.disabled = false;
+    if (!ok) {
+      errBox.textContent = data.error || "Login failed.";
+      errBox.style.display = "block";
+      return;
+    }
+    relogin.ok = true;
+    dialog.close();
+  });
+  // Settle on close (covers Esc too); a fresh prompt gets a fresh promise.
+  dialog.addEventListener("close", () => {
+    const resolve = relogin.resolve;
+    relogin.promise = null;
+    relogin.resolve = null;
+    if (resolve) resolve(relogin.ok);
+  });
+}
+
+/**
+ * `api()` for admin-authenticated calls: on a 401, re-prompt for the password
+ * and retry the request once. If it still fails (or the prompt is cancelled),
+ * the error message is made specific so it doesn't read as a mystery.
+ */
+async function adminApi(path, options = {}) {
+  let res = await api(path, options);
+  if (res.status === 401 && (await ensureAdminSession())) {
+    res = await api(path, options);
+  }
+  if (res.status === 401) {
+    res = { ...res, data: { ...res.data, error: "Your admin session has expired. Please sign in again." } };
+  }
+  return res;
+}
+
+/** `uploadMemberImage` with the same 401 → re-login → retry-once behaviour. */
+async function adminUploadImage(publicId, blob, dims) {
+  let up = await uploadMemberImage(publicId, blob, dims);
+  if (up.status === 401 && (await ensureAdminSession())) {
+    up = await uploadMemberImage(publicId, blob, dims);
+  }
+  return up;
 }
 
 // --- Rendering ------------------------------------------------------------
@@ -277,7 +354,7 @@ async function onBulk(action) {
       !confirm(`Permanently delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? This cannot be undone.`)) {
     return;
   }
-  const { ok, data } = await api("/api/admin/bulk", { method: "POST", body: { ids, action } });
+  const { ok, data } = await adminApi("/api/admin/bulk", { method: "POST", body: { ids, action } });
   if (!ok) {
     flash("dash-error", data.error || "Bulk action failed.");
     return;
@@ -292,7 +369,7 @@ async function copyEditLink(m, btn) {
   const original = btn.textContent;
   btn.disabled = true;
   btn.textContent = "…";
-  const { ok, data } = await api(`/api/admin/members/${encodeURIComponent(m.id)}/edit-link`, { method: "POST" });
+  const { ok, data } = await adminApi(`/api/admin/members/${encodeURIComponent(m.id)}/edit-link`, { method: "POST" });
   btn.disabled = false;
   if (!ok || !data.editUrl) {
     btn.textContent = "Failed";
@@ -350,7 +427,7 @@ async function onGenerateLink() {
   const btn = document.getElementById("a-genlink");
   btn.disabled = true;
   btn.textContent = "…";
-  const { ok, data } = await api(`/api/admin/members/${encodeURIComponent(editing)}/edit-link`, { method: "POST" });
+  const { ok, data } = await adminApi(`/api/admin/members/${encodeURIComponent(editing)}/edit-link`, { method: "POST" });
   btn.disabled = false;
   btn.textContent = "Generate";
   if (ok && data.editUrl) {
@@ -430,7 +507,7 @@ async function onSave(e) {
     consent_public: document.getElementById("a-consent").checked,
     status: document.getElementById("a-status").value,
   };
-  const { ok, data } = await api(`/api/members/${encodeURIComponent(editing)}`, {
+  const { ok, data } = await adminApi(`/api/members/${encodeURIComponent(editing)}`, {
     method: "PUT",
     body: payload,
   });
@@ -446,7 +523,7 @@ async function onSave(e) {
   if (photo && (photo.blob || photo.removed)) {
     try {
       if (photo.blob) {
-        const up = await uploadMemberImage(editing, photo.blob, { width: photo.width, height: photo.height });
+        const up = await adminUploadImage(editing, photo.blob, { width: photo.width, height: photo.height });
         if (!up.ok) throw new Error(up.data.error || "photo upload failed");
       } else if (photo.removed) {
         await deleteMemberImage(editing);
@@ -466,7 +543,7 @@ async function onSave(e) {
 
 async function onDelete() {
   if (!confirm("Permanently delete this entry?")) return;
-  const { ok } = await api(`/api/members/${encodeURIComponent(editing)}`, { method: "DELETE" });
+  const { ok } = await adminApi(`/api/members/${encodeURIComponent(editing)}`, { method: "DELETE" });
   if (ok) {
     document.getElementById("edit-dialog").close();
     selected.delete(editing);
@@ -475,8 +552,9 @@ async function onDelete() {
 }
 
 async function refresh() {
-  const { data } = await api("/api/admin/members");
-  MEMBERS = Array.isArray(data.members) ? data.members : [];
+  const { ok, data } = await adminApi("/api/admin/members");
+  if (!ok || !Array.isArray(data.members)) return; // keep the current view on a failed refetch
+  MEMBERS = data.members;
   // Drop selections that no longer exist.
   const ids = new Set(MEMBERS.map((m) => m.id));
   for (const id of [...selected]) if (!ids.has(id)) selected.delete(id);
@@ -494,7 +572,7 @@ function flash(id, message) {
 
 // --- CSV export -----------------------------------------------------------
 const EXPORT_COLUMNS = [
-  "Name", "Location", "Contact", "Email", "Bio",
+  "Name", "Location", "Contact", "ContactUrl", "Email", "Bio",
   "Latitude", "Longitude", "Status", "Consent", "PublicId",
 ];
 
@@ -511,6 +589,9 @@ function exportRow(m, imageName) {
     Name: m.name,
     Location: m.location,
     Contact: m.contactLabel || "",
+    // The URL is kept separately so a re-import restores links whose label
+    // isn't itself a URL (e.g. "My portfolio" → https://…).
+    ContactUrl: m.contactUrl || "",
     Email: m.email || "",
     Bio: m.bio || "",
     Latitude: m.lat,
@@ -750,7 +831,13 @@ function buildRows(text) {
       include: hasCoords, // rows with coordinates are ready to import immediately
       name: (name || "").trim(),
       location: (location || "").trim(),
+      // Bio is length-capped client-side so an over-long cell doesn't get the
+      // whole row rejected by server validation.
+      bio: byField.bio ? (r[byField.bio] || "").trim().slice(0, 600) : "",
       contact: byField.contact ? (r[byField.contact] || "").trim() : "",
+      // Pre-split contact URL from our own export (safeLinkUrl-whitelisted
+      // server-side). Without it the URL is re-derived from the contact label.
+      contactUrl: byField.contactUrl ? (r[byField.contactUrl] || "").trim() : "",
       email: byField.email ? (r[byField.email] || "").trim() : "",
       status: byField.status ? (r[byField.status] || "").trim().toLowerCase() : "published",
       consentPublic: byField.consent ? /^y|^true|^1/i.test(r[byField.consent] || "Yes") : true,
@@ -845,6 +932,11 @@ function updateImportSummary() {
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
 async function geocodeAll() {
+  // Run token: choosing a new CSV can start a fresh run while an old loop is
+  // still between awaits (the `cancelled` flag alone races when the user picks
+  // a file and continues quickly) — a superseded run must stop touching the
+  // new rows.
+  const run = (importState.geoRun = (importState.geoRun || 0) + 1);
   importState.geocoding = true;
   const bar = document.getElementById("geo-bar");
   const status = document.getElementById("geo-status");
@@ -852,7 +944,7 @@ async function geocodeAll() {
   let done = 0;
 
   for (let i = 0; i < importState.rows.length; i++) {
-    if (importState.cancelled) break;
+    if (importState.cancelled || run !== importState.geoRun) break;
     const r = importState.rows[i];
     if (r.state !== "pending") continue;
 
@@ -876,9 +968,14 @@ async function geocodeAll() {
     done++;
     bar.style.width = `${Math.round((done / Math.max(pending.length, 1)) * 100)}%`;
     updateImportSummary();
+    // Long geocode runs keep the tab busy for many minutes; touching an admin
+    // endpoint now and then lets the server slide the session cookie forward,
+    // so "Import selected" isn't greeted by an expired session at the end.
+    if (done % 50 === 0) api("/api/admin/me").catch(() => {});
     await sleep(500); // be gentle with the geocoder
   }
 
+  if (run !== importState.geoRun) return; // superseded — the newer run owns the UI
   importState.geocoding = false;
   const matched = importState.rows.filter((r) => r.state === "matched").length;
   const unresolved = importState.rows.length - matched;
@@ -907,7 +1004,11 @@ async function confirmImport() {
       // edit link an admin sends them.
       lat: matched ? r.lat : 0,
       lng: matched ? r.lng : 0,
+      bio: r.bio,
       contact: r.contact,
+      // Only sent when the CSV carried one — an absent key lets the server
+      // derive the URL from the contact label as usual.
+      ...(r.contactUrl ? { contactUrl: r.contactUrl } : {}),
       email: r.email,
       status: matched
         ? (["published", "pending", "hidden"].includes(r.status) ? r.status : "published")
@@ -916,7 +1017,7 @@ async function confirmImport() {
     };
   });
 
-  const { ok, data } = await api("/api/admin/import", { method: "POST", body: { members } });
+  const { ok, data } = await adminApi("/api/admin/import", { method: "POST", body: { members } });
   if (!ok) {
     importError(data.error || "Import failed.");
     btn.disabled = false;
@@ -926,20 +1027,28 @@ async function confirmImport() {
 
   // Attach any photos from the zip to the newly created members. `data.created`
   // maps each accepted input row's index to its new public_id.
-  let photoCount = 0;
+  let photos = { uploaded: 0, failed: 0 };
   if (importState.images && importState.images.size && Array.isArray(data.created)) {
-    photoCount = await uploadImportImages(rows, data.created, btn);
+    photos = await uploadImportImages(rows, data.created, btn);
   }
 
   const pendingCount = members.filter((m) => m.status === "pending").length;
   closeImport();
   await refresh();
   const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
-  flash("dash-ok",
+  const summary =
     `Imported ${data.imported} member${data.imported === 1 ? "" : "s"}` +
-    (photoCount ? ` with ${photoCount} photo${photoCount === 1 ? "" : "s"}` : "") +
+    (photos.uploaded ? ` with ${photos.uploaded} photo${photos.uploaded === 1 ? "" : "s"}` : "") +
     (pendingCount ? `, ${pendingCount} held as pending (no location yet — send those members their edit link)` : "") +
-    (skipped ? `; skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : "") + ".");
+    (skipped ? `; skipped ${skipped} invalid row${skipped === 1 ? "" : "s"}` : "") + ".";
+  if (photos.failed) {
+    // Photo problems must not read as a clean import: say what didn't make it.
+    flash("dash-error",
+      `${summary} However, ${photos.failed} photo${photos.failed === 1 ? "" : "s"} couldn’t be uploaded — ` +
+      "you can add them individually via each member’s Edit dialog.");
+  } else {
+    flash("dash-ok", summary);
+  }
 }
 
 /**
@@ -949,6 +1058,7 @@ async function confirmImport() {
  */
 async function uploadImportImages(rows, created, btn) {
   let uploaded = 0;
+  let failed = 0;
   let processed = 0;
   for (const { index, id } of created) {
     const r = rows[index];
@@ -956,17 +1066,21 @@ async function uploadImportImages(rows, created, btn) {
     const bytes = importState.images.get(r.imageName.split("/").pop());
     processed++;
     if (btn) btn.textContent = `Uploading photos… ${processed}`;
-    if (!bytes) continue;
+    if (!bytes) { failed++; continue; } // referenced in the CSV but missing from the zip
     try {
       const { blob, width, height } = await compressImageToBlob(new Blob([bytes]));
-      const up = await uploadMemberImage(id, blob, { width, height });
+      const up = await adminUploadImage(id, blob, { width, height });
       if (up.ok) uploaded++;
-      else console.warn("import photo upload rejected", id, up.data);
+      else {
+        failed++;
+        console.warn("import photo upload rejected", id, up.data);
+      }
     } catch (err) {
+      failed++;
       console.warn("import photo failed", r.imageName, err);
     }
   }
-  return uploaded;
+  return { uploaded, failed };
 }
 
 // --- Merge (de-duplication) ----------------------------------------------
@@ -1134,7 +1248,7 @@ async function confirmMerge() {
   const btn = document.getElementById("merge-confirm");
   btn.disabled = true;
   btn.textContent = "Merging…";
-  const { ok, data } = await api("/api/admin/merge", {
+  const { ok, data } = await adminApi("/api/admin/merge", {
     method: "POST",
     body: { primaryId: mergeState.primaryId, mergeIds, fields, imageSource: mergeState.imageSource },
   });
@@ -1180,7 +1294,7 @@ async function openSettings() {
   wrap.replaceChildren(el("p", { class: "muted", text: "Loading…" }));
   document.getElementById("settings-dialog").showModal();
 
-  const { ok, data } = await api("/api/admin/settings");
+  const { ok, data } = await adminApi("/api/admin/settings");
   if (!ok) {
     settingsError(data.error || "Could not load settings.");
     wrap.replaceChildren();
@@ -1277,7 +1391,7 @@ async function onSaveSettings(e) {
   const btn = document.getElementById("settings-save");
   btn.disabled = true;
   btn.textContent = "Saving…";
-  const { ok, data } = await api("/api/admin/settings", { method: "PUT", body: { values, clear } });
+  const { ok, data } = await adminApi("/api/admin/settings", { method: "PUT", body: { values, clear } });
   btn.disabled = false;
   btn.textContent = "Save settings";
 
