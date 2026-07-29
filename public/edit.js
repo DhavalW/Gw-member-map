@@ -187,22 +187,57 @@ function setPick(lat, lng, recenter = false) {
   if (recenter) pick.map.setView([lat, lng], 9);
 }
 
+// Mirrors the sign-up form's location search (app.js): every failure mode —
+// endpoint unreachable, upstream geocoder down, no matches — tells the member
+// what happened via the field hint instead of silently showing no results.
 function wireGeocode() {
   const input = document.getElementById("location_name");
   const results = document.getElementById("geo-results");
+  const hint = document.querySelector("#f-location_name .hint");
+  const defaultHint = hint ? hint.textContent : "";
+  const setHint = (msg) => { if (hint) hint.textContent = msg || defaultHint; };
+  const PIN_HINT = "Couldn’t search locations right now — click the map below to move your pin.";
+
   const search = debounce(async () => {
     const q = input.value.trim();
     if (q.length < 3) {
       results.classList.remove("show");
+      results.replaceChildren();
+      setHint("");
       return;
     }
-    const { data } = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
-    const items = Array.isArray(data.results) ? data.results : [];
-    results.replaceChildren();
-    if (!items.length) {
+    setHint("Searching…");
+
+    let resp;
+    try {
+      resp = await api(`/api/geocode?q=${encodeURIComponent(q)}`);
+    } catch (err) {
+      console.error("geocode request failed", err);
       results.classList.remove("show");
+      setHint(PIN_HINT);
       return;
     }
+
+    const { ok, status, data } = resp;
+    results.replaceChildren();
+
+    // Endpoint reachable but the upstream lookup failed (or returned non-JSON):
+    // tell the member instead of silently showing nothing.
+    if (!ok || data.error || !Array.isArray(data.results)) {
+      console.warn("geocode unavailable", { status, error: data.error });
+      results.classList.remove("show");
+      setHint(PIN_HINT);
+      return;
+    }
+
+    const items = data.results;
+    if (items.length === 0) {
+      results.classList.remove("show");
+      setHint("No matches — try a different spelling, or click the map to move your pin.");
+      return;
+    }
+
+    setHint("");
     for (const r of items) {
       const btn = el("button", { type: "button", text: r.label });
       btn.addEventListener("click", () => {
@@ -210,10 +245,11 @@ function wireGeocode() {
         setPick(r.lat, r.lng, true);
         results.classList.remove("show");
       });
-      results.append(el("li", {}, [btn]));
+      results.append(el("li", { role: "option" }, [btn]));
     }
     results.classList.add("show");
   }, 350);
+
   input.addEventListener("input", search);
 }
 

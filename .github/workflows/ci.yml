@@ -1,0 +1,38 @@
+# Guards against silent regressions: every push and pull request must pass the
+# type checker and the test suite before it can be trusted. The tests pin the
+# behaviours that have broken silently before — most notably the /api/geocode
+# location search that every form depends on (see test/*.test.ts).
+#
+# Note for clone owners: Cloudflare Workers Builds deploys on push regardless
+# of this workflow's result. Treat a red run as "this change broke something
+# that used to work" and fix or revert it.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
