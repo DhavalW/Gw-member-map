@@ -824,8 +824,13 @@ function buildRows(text) {
   importState.rows = parsed.rows.map((r) => {
     const name = byField.name ? r[byField.name] : "";
     const location = byField.location ? r[byField.location] : "";
-    const lat = byField.lat ? Number(r[byField.lat]) : NaN;
-    const lng = byField.lng ? Number(r[byField.lng]) : NaN;
+    // Blank cells must stay NaN (Number("") is 0): a CSV with empty
+    // Latitude/Longitude columns would otherwise pin every row at (0,0)
+    // instead of geocoding its location.
+    const latRaw = byField.lat ? String(r[byField.lat] ?? "").trim() : "";
+    const lngRaw = byField.lng ? String(r[byField.lng] ?? "").trim() : "";
+    const lat = latRaw === "" ? NaN : Number(latRaw);
+    const lng = lngRaw === "" ? NaN : Number(lngRaw);
     const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
     return {
       include: hasCoords, // rows with coordinates are ready to import immediately
